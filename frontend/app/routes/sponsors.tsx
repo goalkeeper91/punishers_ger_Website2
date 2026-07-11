@@ -44,7 +44,7 @@ export default function SponsorsPage() {
         <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=Sponsors+Banner')" }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
-            <h1 className="text-5xl md:text-6xl font-extrabold text-white mb-4">Unsere Partner & Sponsoren</h1>
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">Unsere Partner & Sponsoren</h1>
             <p className="text-lg md:text-xl text-gray-300 max-w-3xl mx-auto">
               Wir sind stolz auf unsere starken Partnerschaften, die uns auf unserem Weg zum Erfolg unterstützen.
             </p>

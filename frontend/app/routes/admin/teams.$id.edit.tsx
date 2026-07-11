@@ -220,12 +220,12 @@ export default function AdminTeamEditPage() {
           <h2 className="text-2xl font-bold text-white mb-6">Roster</h2>
           <ul className="divide-y divide-gray-700 mb-6">
             {team.players.map((player) => (
-              <li key={player.id} className="py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-white font-medium">{player.ingame_name} {player.role && <span className="text-gray-400 text-sm">({player.role})</span>}</p>
+              <li key={player.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-white font-medium break-words">{player.ingame_name} {player.role && <span className="text-gray-400 text-sm">({player.role})</span>}</p>
                   <p className="text-gray-500 text-xs">{player.user ? `@${player.user.username}` : "Kein Nutzerkonto"}</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-shrink-0">
                   <a href={`/admin/players/${player.id}/edit`} className="py-2 px-4 rounded-md text-white text-xs font-semibold bg-gray-600 hover:bg-gray-500">
                     Bearbeiten
                   </a>
