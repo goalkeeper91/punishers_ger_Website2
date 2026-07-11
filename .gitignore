@@ -1,0 +1,28 @@
+# --- Python / Django ---
+__pycache__/
+*.pyc
+.venv/
+backend/db.sqlite3
+backend/media/
+backend/staticfiles/
+
+# Environment secrets (see .env.example for the documented template)
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# --- Node / frontend ---
+frontend/node_modules/
+frontend/build/
+frontend/.react-router/
+
+# --- Editor / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Claude ---
+.claude/settings.local.json
