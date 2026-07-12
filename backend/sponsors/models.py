@@ -39,12 +39,32 @@ class SocialLink(models.Model):
         ("tiktok", "TikTok"),
         ("other", "Sonstiges"),
     ]
+    DATA_SOURCE_CHOICES = [
+        ("auto", "Automatisch synchronisiert"),
+        ("manual", "Manuell gepflegt"),
+    ]
 
     platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES)
     url = models.URLField(max_length=200)
     is_active = models.BooleanField(default=True)
     order = models.PositiveIntegerField(default=0, help_text="Niedrigere Werte werden zuerst angezeigt.")
     click_count = models.PositiveIntegerField(default=0)
+
+    # Reichweiten-Statistik für die Sponsoren-Auswertung (siehe social_stats
+    # App). YouTube/Discord werden automatisch synchronisiert; für Twitch/
+    # Twitter/Instagram/TikTok gibt es (Stand heute) keine öffentliche API
+    # ohne Kanal-eigenes OAuth mehr, daher pflegt ein Admin diese Werte hier
+    # manuell.
+    follower_count = models.PositiveIntegerField(blank=True, null=True, help_text="Follower/Abonnenten/Mitglieder, je nach Plattform.")
+    view_count = models.PositiveIntegerField(blank=True, null=True, help_text="Gesamt-Views, falls von der Plattform bereitgestellt (z.B. YouTube).")
+    like_count = models.PositiveIntegerField(blank=True, null=True)
+    comment_count = models.PositiveIntegerField(blank=True, null=True)
+    share_count = models.PositiveIntegerField(blank=True, null=True)
+    reach_count = models.PositiveIntegerField(blank=True, null=True, help_text="Anzahl erreichter Accounts/Personen.")
+    impressions_count = models.PositiveIntegerField(blank=True, null=True, help_text="Anzahl Anzeigen des Inhalts, inkl. Mehrfachansichten.")
+    data_source = models.CharField(max_length=10, choices=DATA_SOURCE_CHOICES, default="manual")
+    stats_updated_at = models.DateTimeField(blank=True, null=True, help_text="Letzte automatische Synchronisation oder manuelle Pflege der Reichweiten-Zahlen.")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

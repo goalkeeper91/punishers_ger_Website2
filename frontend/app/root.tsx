@@ -60,11 +60,14 @@ export const loader: LoaderFunction = async () => {
 };
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const { user: initialUser, sponsors, socialLinks } = useLoaderData() as {
-    user: UserProfile | null;
-    sponsors: Sponsor[];
-    socialLinks: SocialLink[];
-  };
+  // useLoaderData() returns undefined here when a URL matches no route at
+  // all (React Router renders the root Layout around the 404 ErrorBoundary
+  // without running any loaders) - fall back to empty defaults so the 404
+  // page can render instead of this crashing first.
+  const data = useLoaderData() as
+    | { user: UserProfile | null; sponsors: Sponsor[]; socialLinks: SocialLink[] }
+    | undefined;
+  const { user: initialUser = null, sponsors = [], socialLinks = [] } = data ?? {};
   const [loggedInUser, setLoggedInUser] = useState<UserProfile | null>(initialUser);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);

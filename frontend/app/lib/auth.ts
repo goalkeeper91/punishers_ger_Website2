@@ -20,6 +20,10 @@ export interface AuthUser {
   twitter_link: string | null;
   twitch_link: string | null;
   youtube_link: string | null;
+  instagram_link: string | null;
+  tiktok_link: string | null;
+  twitch_connected: boolean;
+  twitch_authorized_login: string | null;
   team_id: number | null;
   team_name: string | null;
   is_active: boolean;

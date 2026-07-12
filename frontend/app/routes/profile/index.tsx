@@ -1,10 +1,36 @@
 import type { ClientLoaderFunction, ClientActionFunction } from "react-router";
-import { useLoaderData, Form, redirect, useActionData, useNavigation } from "react-router";
+import { useLoaderData, Form, redirect, useActionData, useNavigation, useSearchParams } from "react-router";
 import { useState, useEffect } from "react";
 import { authFetch, isLoggedIn, clearTokens, hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "~/lib/auth";
 import { extractErrorMessage } from "~/lib/errors";
 import { getAdminNavItems } from "~/lib/adminNav";
 import { imageFallback } from "~/lib/sampleAssets";
+import { TrendBadge, ViewerStatsBadge } from "~/components/TrendBadge";
+import { SocialMetricsCard } from "~/components/SocialMetricsCard";
+import {
+  fetchTwitchAuthorizeUrl,
+  disconnectTwitchPlayer,
+  fetchMySocialChannels,
+  updateMySocialStats,
+  type SocialChannel,
+  type SocialMetricsPayload,
+} from "~/lib/socialStats";
+
+const MANUAL_METRIC_FIELDS: (keyof SocialMetricsPayload)[] = [
+  "follower_count",
+  "view_count",
+  "like_count",
+  "comment_count",
+  "share_count",
+  "reach_count",
+  "impressions_count",
+];
+
+const MANUAL_PLATFORMS: { key: string; label: string }[] = [
+  { key: "twitter", label: "Twitter/X" },
+  { key: "instagram", label: "Instagram" },
+  { key: "tiktok", label: "TikTok" },
+];
 
 type UserProfile = AuthUser;
 
@@ -28,13 +54,14 @@ export const clientLoader: ClientLoaderFunction = async () => {
       throw new Error(`HTTP error! status: ${userResponse.status}, detail: ${errorText}`);
     }
     const user: UserProfile = await userResponse.json();
-    return { user };
+    const socialChannels = await fetchMySocialChannels().catch(() => [] as SocialChannel[]);
+    return { user, socialChannels };
   } catch (error) {
     if (error instanceof Response) {
       throw error; // Re-throw redirect responses
     }
     console.error("Loader: Failed to fetch user profile:", error);
-    return { user: null, error: "Failed to load user profile." };
+    return { user: null, error: "Failed to load user profile.", socialChannels: [] as SocialChannel[] };
   }
 };
 
@@ -58,7 +85,7 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
   try {
     if (formType === "profileUpdate") {
       const updateData: { [key: string]: any } = {};
-      const fields = ["first_name", "last_name", "steam_id", "game_profile_link", "twitter_link", "twitch_link", "youtube_link"];
+      const fields = ["first_name", "last_name", "steam_id", "game_profile_link", "twitter_link", "twitch_link", "youtube_link", "instagram_link", "tiktok_link"];
       fields.forEach(field => {
         const value = formData.get(field);
         if (value !== null && value !== "") { // Only send fields that are present and not empty
@@ -101,6 +128,20 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
         throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
       }
       return { success: "Profilbild erfolgreich hochgeladen!" };
+    } else if (formType === "disconnectTwitch") {
+      await disconnectTwitchPlayer();
+      return { success: "Twitch-Verbindung getrennt." };
+    } else if (formType === "updateMySocialStats") {
+      const platform = String(formData.get("platform"));
+      const payload: SocialMetricsPayload = {};
+      for (const field of MANUAL_METRIC_FIELDS) {
+        const raw = formData.get(field);
+        if (raw === null || raw === "") continue;
+        const n = Number(raw);
+        if (Number.isFinite(n)) payload[field] = n;
+      }
+      await updateMySocialStats(platform, payload);
+      return { success: "Statistik aktualisiert." };
     }
 
     return { error: "Unbekannter Formular-Typ." };
@@ -112,19 +153,35 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
 
 
 export default function ProfilePage() {
-  const loaderData = useLoaderData() as { user: UserProfile | null; error?: string };
+  const loaderData = useLoaderData() as { user: UserProfile | null; error?: string; socialChannels: SocialChannel[] };
   const actionData = useActionData() as { error?: string; success?: string } | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
 
-  const { user, error: loaderError } = loaderData;
+  const { user, error: loaderError, socialChannels } = loaderData;
+  const twitchChannel = socialChannels.find((c) => c.platform === "twitch") ?? null;
   const [profilePicturePreview, setProfilePicturePreview] = useState<string | null>(user?.profile_picture_url || null);
+  const [searchParams] = useSearchParams();
+  const [twitchConnecting, setTwitchConnecting] = useState(false);
+  const [twitchConnectError, setTwitchConnectError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user?.profile_picture_url) {
       setProfilePicturePreview(user.profile_picture_url);
     }
   }, [user?.profile_picture_url]);
+
+  const handleConnectTwitch = async () => {
+    setTwitchConnecting(true);
+    setTwitchConnectError(null);
+    try {
+      const url = await fetchTwitchAuthorizeUrl("player");
+      window.location.href = url;
+    } catch (err: any) {
+      setTwitchConnectError(err.message || "Twitch-Verbindung konnte nicht gestartet werden.");
+      setTwitchConnecting(false);
+    }
+  };
 
   if (!user) {
     return (
@@ -206,6 +263,16 @@ export default function ProfilePage() {
           {actionData?.success && (
             <div className="bg-green-800 text-white p-4 rounded-md mb-6 text-center">
               {actionData.success}
+            </div>
+          )}
+          {searchParams.get("twitch_connected") && (
+            <div className="bg-green-800 text-white p-4 rounded-md mb-6 text-center">
+              Twitch-Kanal erfolgreich verbunden.
+            </div>
+          )}
+          {searchParams.get("twitch_error") && (
+            <div className="bg-red-800 text-white p-4 rounded-md mb-6 text-center">
+              Twitch-Verbindung fehlgeschlagen. Bitte erneut versuchen.
             </div>
           )}
 
@@ -349,6 +416,26 @@ export default function ProfilePage() {
                     className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
                   />
                 </div>
+                <div>
+                  <label htmlFor="instagram_link" className="block text-sm font-medium text-gray-300">Instagram Link</label>
+                  <input
+                    type="url"
+                    id="instagram_link"
+                    name="instagram_link"
+                    defaultValue={user.instagram_link || ""}
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="tiktok_link" className="block text-sm font-medium text-gray-300">TikTok Link</label>
+                  <input
+                    type="url"
+                    id="tiktok_link"
+                    name="tiktok_link"
+                    defaultValue={user.tiktok_link || ""}
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                  />
+                </div>
               </div>
               <button
                 type="submit"
@@ -358,6 +445,102 @@ export default function ProfilePage() {
                 {isSubmitting ? "Wird gespeichert..." : "Profil speichern"}
               </button>
             </Form>
+          </div>
+
+          {/* Twitch-Verbindung für automatisierte Follower-Synchronisation */}
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
+            <h2 className="text-3xl font-bold text-white mb-2">Social-Media-Verbindungen</h2>
+            <p className="text-gray-400 text-sm mb-6">
+              Verbinde deinen Twitch-Kanal, damit deine Follower-Zahl automatisch für Sponsoren-Reportings
+              synchronisiert wird, statt dass ein Admin sie manuell pflegen muss.
+            </p>
+            {twitchConnectError && (
+              <div className="bg-red-800 text-white p-3 rounded-md mb-4 text-sm">{twitchConnectError}</div>
+            )}
+            <div className="flex items-center justify-between bg-gray-900 rounded-md px-4 py-3">
+              <div>
+                <span className="text-white font-semibold">Twitch</span>
+                {user.twitch_connected ? (
+                  <span className="text-green-400 text-sm ml-2">Verbunden als {user.twitch_authorized_login}</span>
+                ) : (
+                  <span className="text-gray-500 text-sm ml-2">Nicht verbunden</span>
+                )}
+                {twitchChannel && (
+                  <span className="ml-2">
+                    <TrendBadge trend={twitchChannel.trend} />
+                  </span>
+                )}
+                {twitchChannel?.viewer_stats && (
+                  <div className="mt-1">
+                    <ViewerStatsBadge viewerStats={twitchChannel.viewer_stats} />
+                  </div>
+                )}
+              </div>
+              {user.twitch_connected ? (
+                <Form method="post">
+                  <input type="hidden" name="_formType" value="disconnectTwitch" />
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="py-2 px-4 rounded-md text-white text-sm font-semibold bg-gray-600 hover:bg-gray-500 disabled:opacity-50"
+                  >
+                    Trennen
+                  </button>
+                </Form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleConnectTwitch}
+                  disabled={twitchConnecting}
+                  className="py-2 px-4 rounded-md text-white text-sm font-semibold bg-red-600 hover:bg-red-700 disabled:opacity-50"
+                >
+                  {twitchConnecting ? "Weiterleitung..." : "Twitch verbinden"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Manuelle Reichweite (Twitter/Instagram/TikTok) - Zahlen selbst
+              eintragen oder per Screenshot auslesen lassen, statt einen
+              Admin zu bitten. */}
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
+            <h2 className="text-3xl font-bold text-white mb-2">Meine Reichweite</h2>
+            <p className="text-gray-400 text-sm mb-6">
+              Für Twitter/X, Instagram und TikTok gibt es (noch) keine automatische Synchronisation. Trage deine
+              Zahlen selbst ein, oder lade einen Screenshot (z.B. deiner Profil- oder Beitrags-Insights) hoch - die
+              Werte werden lokal ausgelesen und als Vorschlag eingetragen, das Bild selbst wird dabei nirgends
+              gespeichert.
+            </p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {MANUAL_PLATFORMS.map(({ key, label }) => {
+                const channel = socialChannels.find((c) => c.platform === key) ?? {
+                  platform: key,
+                  follower_count: null,
+                  view_count: null,
+                  like_count: null,
+                  comment_count: null,
+                  share_count: null,
+                  reach_count: null,
+                  impressions_count: null,
+                  data_source: "manual" as const,
+                  stats_updated_at: null,
+                  trend: null,
+                  viewer_stats: null,
+                };
+                return (
+                  <SocialMetricsCard
+                    key={key}
+                    title={label}
+                    channel={channel}
+                    hiddenFields={{ platform: key }}
+                    intentFieldName="_formType"
+                    intentValue="updateMySocialStats"
+                    uploadKey={key}
+                    isSubmitting={isSubmitting}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
       </main>

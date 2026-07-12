@@ -6,7 +6,7 @@
 
 import { hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "./auth";
 
-export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "audit-log";
+export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log";
 
 export interface AdminNavItem {
   key: AdminNavKey;
@@ -53,6 +53,7 @@ export function getAdminNavItems(user: AuthUser | null): AdminNavItem[] {
   }
   if (isAdmin || canSponsors) {
     items.push({ key: "sponsors", href: "/admin/sponsors", label: "Sponsoren & Socials" });
+    items.push({ key: "social-stats", href: "/admin/social-stats", label: "Reichweite" });
   }
   if (isAdmin) {
     items.push({ key: "audit-log", href: "/admin/audit-log", label: "Audit-Log" });

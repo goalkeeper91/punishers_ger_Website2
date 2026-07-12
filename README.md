@@ -140,6 +140,19 @@ Rollenbasierte Statistik-Ansicht, getrennt vom Admin-Dashboard (`/admin/*`) – 
 - **Effizienz:** ein einmal gespeichertes `PlayerMatchStats`-Row für ein beendetes Match wird nie erneut abgerufen (FACEITs Zahlen ändern sich für ein beendetes Match nicht mehr) – jeder Sync-Lauf ruft nur noch-nicht-synchronisierte Matches ab, gedeckelt auf 30 pro Lauf (`MAX_MATCH_STATS_PER_RUN`), der Rest folgt beim nächsten Lauf.
 - **Nächster Schritt (bewusst noch nicht gebaut):** Trend-Auswertungen ("Verbesserung/Verschlechterung über Zeit") – dafür sind mit `PlayerMatchStats` jetzt erstmals echte Zeitreihen-Rohdaten vorhanden, es gibt aber noch keine Auswertungslogik/UI dafür. Demo-basierte Movement-Stats (s.o.) ebenfalls offen.
 
+### Social-Media-Reichweite (`/admin/social-stats`, erfordert `sponsors.manage_sponsors`)
+
+Für Sponsoren-Reportings: aggregierte Reichweite (Follower/Abos) der Org-eigenen Kanäle, aller Spieler und – daraus abgeleitet – aller Teams. Teams haben bewusst **keine eigenen** Social-Media-Kanäle; die Team-Reichweite ist einfach die Summe der Roster-Spieler-Werte. Backend: `backend/social_stats/` (Modell `PlayerSocialStats`, YouTube-/Discord-Clients, Sync-Logik, In-Prozess-Scheduler + `python manage.py sync_social_stats`), Endpunkte `GET/PUT /admin/social-stats/...` in `fastapi_app/main.py`. Frontend: `app/routes/admin/social-stats.tsx`, `app/lib/socialStats.ts`.
+
+- **YouTube (Abos + Views) und Discord (Mitgliederzahl über die öffentliche Invite-API, kein Bot nötig) werden automatisch synchronisiert** – beide haben eine öffentliche, key-only API ohne Kanal-eigenes OAuth. Twitter/Instagram/TikTok bieten das (Stand heute) nicht mehr an, daher pflegt ein Admin diese Werte manuell über dieselbe Seite (`data_source: "manual"` vs. `"auto"`, mit Zeitstempel).
+- **Twitch-Kanäle können per OAuth verbunden werden** (Button auf `/profile` für Spieler, auf `/admin/social-stats` für Org-Kanäle) und synchronisieren danach ebenfalls automatisch – Twitch hat die Follower-Zahl 2023 aus der öffentlichen API entfernt, sie ist seither nur noch über einen `moderator:read:followers`-Scope vom Kanal-Betreiber selbst abrufbar. Modell `social_stats.TwitchAuthorization` speichert Access-/Refresh-Token pro Kanal (Spieler XOR Org-Kanal); `state`-Parameter im OAuth-Flow ist ein signiertes JWT (selbes Secret wie Access-/Refresh-Tokens), da der Redirect von Twitch keinen Authorization-Header mitschickt. Endpunkte: `GET /social-stats/twitch/authorize-url/`, `GET /social-stats/twitch/callback/`, `DELETE /social-stats/twitch/player/`, `DELETE /admin/social-stats/twitch/org/{id}/` in `fastapi_app/main.py`; OAuth-Client-Erweiterungen in `twitch_integration/client.py`.
+- **Engagement-Metriken über reine Follower-Zahlen hinaus**: `follower_count`/`view_count`/`like_count`/`comment_count`/`share_count`/`reach_count`/`impressions_count` auf `sponsors.SocialLink`, `social_stats.PlayerSocialStats` und `social_stats.SocialStatsSnapshot` (siehe `social_stats.models.ENGAGEMENT_METRIC_FIELDS`) - reine Follower-Zahlen sagen wenig über echten Sponsoren-Wert aus (gekaufte/inaktive Follower verzerren sie), Views/Likes/Kommentare/Shares/Reichweite/Impressionen liefern ein deutlich vollständigeres Bild für ein Sponsoren-Reporting.
+- **Screenshot-Auswertung liest jetzt mehrere Metriken auf einmal** (`POST /social-stats/screenshot/`): ein einzelner Screenshot (z.B. eine Instagram-Insights-Karte mit Followern/Likes/Kommentaren/Shares/Reichweite/Impressionen) füllt alle erkannten Felder gleichzeitig - lokales, kostenloses Tesseract-OCR (`social_stats/ocr_client.py`, kein bezahlter Vision-API-Aufruf), pro Metrik ein eigenes Set an Keywords (`METRIC_KEYWORDS`), Kontextfenster bewusst durch Zeilenumbrüche UND benachbarte Zahlen-Treffer begrenzt (nicht nur eine feste Zeichenanzahl), damit das Label einer Zeile nicht fälschlich der Zahl einer benachbarten Zeile zugeordnet wird. **Gespeichert wird erst, wenn der Mensch die Werte bestätigt/korrigiert und "Speichern" klickt**, das Bild selbst wird nie auf die Festplatte geschrieben (Verarbeitung nur im Arbeitsspeicher der Anfrage). Spieler können darüber auch **ihre eigenen** Twitter/Instagram/TikTok-Werte selbst pflegen (`GET/PUT /social-stats/me/{platform}/`), ohne einen Admin zu bitten.
+- **`SocialMetricsCard`** (`frontend/app/components/SocialMetricsCard.tsx`) bündelt Anzeige (Badges, Trend), das komplette Eingabe-Grid für alle Metriken, Screenshot-Upload und Speichern-Button in einer einzigen wiederverwendeten Komponente - ersetzt die vorherige, visuell überladene Einzeilen-Darstellung auf `/admin/social-stats` und `/profile` durch eine Karten-Ansicht.
+- **Wachstumstrend (letzte 30 Tage) und Twitch-Zuschauerzahlen** – reine Follower-Zahlen sagen wenig über die tatsächliche Sponsoren-Relevanz aus (gekaufte/inaktive Follower verzerren sie), daher zusätzlich: (1) `social_stats.SocialStatsSnapshot` protokolliert **jede** Follower-/View-Zahl als Zeitreihen-Eintrag statt sie nur zu überschreiben – bei jedem Auto-Sync, jeder manuellen Eingabe, jedem Twitch-Connect und jeder Screenshot-Bestätigung (`social_stats/trends.py: record_follower_snapshot()`), sodass "+12% in 30 Tagen" ganz ohne zusätzliche Plattform-Anbindung berechenbar ist (`compute_follower_trend()`, `TrendSchema` auf jedem Kanal). (2) `social_stats.TwitchViewerSnapshot` loggt bei jedem Sync-Lauf opportunistisch die aktuelle Live-Zuschauerzahl verbundener/verlinkter Twitch-Kanäle (`sync_twitch_viewer_snapshots()`, nutzt den bereits vorhandenen App-Token-Live-Status-Abruf) und liefert Ø/Peak-Zuschauer der letzten 30 Tage (`compute_viewer_stats()`, `ViewerStatsSchema`). Beides sparse/stichprobenartig (im Sync-Intervall), aber ausreichend für ein Richtungssignal ohne dedizierten Dauer-Poller.
+- `sponsors.SocialLink` (Org-Kanäle) und `social_stats.PlayerSocialStats` (pro Spieler + Plattform) tragen dieselben Reichweiten-Felder (`follower_count`, `view_count`, `data_source`, `stats_updated_at`, `trend`, `viewer_stats`).
+- Zugriffskontrolle: Org-Kanäle und Fremdzugriff auf andere Spieler über dieselbe `sponsors.manage_sponsors`-Permission wie die Sponsoren/Socials-Verwaltung; die neuen `/social-stats/me/...`-Endpunkte brauchen nur ein gültiges Login, da sie strukturell nie eine andere Zeile als die eigene berühren können (kein `user_id`-Parameter).
+
 ### Sicherheit
 
 - **SQL-Injection:** ausgeschlossen, da ausschließlich über das Django-ORM auf die Datenbank zugegriffen wird (`.filter()`, `.create()`, `.get()`, ...) – keine rohen SQL-Strings, kein `.raw()`, keine String-Interpolation in Queries irgendwo im Backend.
@@ -196,6 +209,10 @@ frontend/
 
 - Python 3.11+ mit einem virtuellen Environment unter `.venv/`
 - Node.js 20+
+- Tesseract-OCR (Systempaket, kein Python-Package) für den Screenshot-Auswertungs-Flow unter `/social-stats/screenshot/`
+  (siehe "Social-Media-Reichweite" unten) - Windows: `scoop install tesseract tesseract-languages`, Linux:
+  `apt install tesseract-ocr`, macOS: `brew install tesseract`. Ohne installiertes Tesseract liefert der Endpunkt
+  einen 503-Fehler statt zu crashen; alle anderen Features funktionieren unabhängig davon weiter.
 
 ### Backend
 
@@ -238,7 +255,8 @@ npm run start
 | `DJANGO_SECRET_KEY` | Django Secret Key | – (Pflicht in Produktion) |
 | `DJANGO_DEBUG` | Debug-Modus | `True` |
 | `DJANGO_ALLOWED_HOSTS` | Kommagetrennte Liste | `localhost,127.0.0.1` |
-| `BACKEND_BASE_URL` | Öffentliche URL des FastAPI-Backends (für absolute Media-URLs) | `http://localhost:8000` |
+| `BACKEND_BASE_URL` | Öffentliche URL des FastAPI-Backends (für absolute Media-URLs und den Twitch-OAuth-Redirect) | `http://localhost:8000` |
+| `FRONTEND_BASE_URL` | Öffentliche URL des Frontends (Redirect-Ziel nach Twitch-OAuth) | `http://localhost:5173` |
 | `CORS_ORIGINS` | Kommagetrennte Liste erlaubter Frontend-Origins | `http://localhost:5173,http://localhost:3000` |
 | `JWT_SECRET_KEY` | Signier-Secret für JWTs | fällt auf `DJANGO_SECRET_KEY` zurück |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Gültigkeit Access-Token | `60` |
@@ -246,8 +264,10 @@ npm run start
 | `FACEIT_API_KEY` | Server-Side API Key von [developers.faceit.com](https://developers.faceit.com/) | leer (Sync liefert dann einen Fehler statt zu crashen) |
 | `FACEIT_DEFAULT_GAME_ID` | FACEIT-Spiel-ID für Stats-Abfragen | `cs2` |
 | `FACEIT_SYNC_INTERVAL_MINUTES` | Intervall des In-Prozess-Schedulers; `0` deaktiviert ihn | `360` |
-| `TWITCH_CLIENT_ID` | App-Client-ID von [dev.twitch.tv/console](https://dev.twitch.tv/console) | leer (`/creators/` liefert dann `live: null` statt zu crashen) |
+| `TWITCH_CLIENT_ID` | App-Client-ID von [dev.twitch.tv/console](https://dev.twitch.tv/console) - für den OAuth-Connect-Flow muss dort zusätzlich `{BACKEND_BASE_URL}/social-stats/twitch/callback/` als Redirect-URI eingetragen werden | leer (`/creators/` liefert dann `live: null`; Twitch-Connect liefert 503 statt zu crashen) |
 | `TWITCH_CLIENT_SECRET` | App-Client-Secret dazu | leer |
+| `YOUTUBE_API_KEY` | API-Key von [console.cloud.google.com](https://console.cloud.google.com/apis/credentials) (YouTube Data API v3 aktivieren) | leer (Social-Stats-Sync überspringt YouTube dann) |
+| `SOCIAL_STATS_SYNC_INTERVAL_MINUTES` | Intervall des In-Prozess-Schedulers für Social-Media-Reichweite; `0` deaktiviert ihn | `360` |
 
 **`frontend/.env.development` / `.env.production`** (siehe `frontend/.env.example`):
 

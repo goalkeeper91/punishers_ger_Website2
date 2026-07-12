@@ -10,15 +10,20 @@ user-specific scopes.
 
 import time
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import requests
 from django.conf import settings
 
 TOKEN_URL = "https://id.twitch.tv/oauth2/token"
+AUTHORIZE_URL = "https://id.twitch.tv/oauth2/authorize"
 HELIX_BASE_URL = "https://api.twitch.tv/helix"
 DEFAULT_TIMEOUT = 10  # seconds
 MAX_LOGINS_PER_REQUEST = 100  # Helix limit for user_login params per call
+# Twitch removed public follower counts in 2023 - this is the only scope that
+# still exposes them, and only to the broadcaster's own (or a moderator's)
+# user-context token, never the app access token used elsewhere in this file.
+FOLLOWERS_SCOPE = "moderator:read:followers"
 
 
 class TwitchAPIError(Exception):
@@ -102,6 +107,95 @@ class TwitchClient:
         if not response.ok:
             raise TwitchAPIError(f"Twitch-API-Fehler {response.status_code} bei {path}: {response.text[:300]}")
         return response.json()
+
+    # --- User OAuth (Authorization Code Grant) - for reading a channel's own
+    # follower count, which requires the broadcaster's own consent since 2023
+    # (see FOLLOWERS_SCOPE above). Separate from the app-token flow above,
+    # which only ever gets public data (live status). ---
+
+    def build_user_authorize_url(self, redirect_uri: str, state: str) -> str:
+        params = {
+            "client_id": self.client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": FOLLOWERS_SCOPE,
+            "state": state,
+        }
+        return f"{AUTHORIZE_URL}?{urlencode(params)}"
+
+    def exchange_authorization_code(self, code: str, redirect_uri: str) -> dict:
+        """Returns {access_token, refresh_token, expires_in, scope, token_type}."""
+        try:
+            response = self._session.post(
+                TOKEN_URL,
+                data={
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                },
+                timeout=DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            raise TwitchAPIError(f"Netzwerkfehler beim Twitch-Code-Austausch: {exc}") from exc
+        if not response.ok:
+            raise TwitchAPIError(f"Twitch-Code-Austausch-Fehler {response.status_code}: {response.text[:300]}")
+        return response.json()
+
+    def refresh_user_token(self, refresh_token: str) -> dict:
+        """Same response shape as exchange_authorization_code()."""
+        try:
+            response = self._session.post(
+                TOKEN_URL,
+                data={
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+                timeout=DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            raise TwitchAPIError(f"Netzwerkfehler beim Twitch-Token-Refresh: {exc}") from exc
+        if not response.ok:
+            raise TwitchAPIError(f"Twitch-Token-Refresh-Fehler {response.status_code}: {response.text[:300]}")
+        return response.json()
+
+    def get_authenticated_user(self, user_access_token: str) -> dict:
+        """GET /users with a USER token (not the app token) - resolves the
+        broadcaster's own id/login right after the OAuth code exchange."""
+        try:
+            response = self._session.get(
+                f"{HELIX_BASE_URL}/users",
+                headers={"Client-Id": self.client_id, "Authorization": f"Bearer {user_access_token}"},
+                timeout=DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            raise TwitchAPIError(f"Netzwerkfehler bei Twitch-User-Abruf: {exc}") from exc
+        if not response.ok:
+            raise TwitchAPIError(f"Twitch-API-Fehler {response.status_code} bei /users: {response.text[:300]}")
+        data = response.json().get("data", [])
+        if not data:
+            raise TwitchAPIError("Twitch-Nutzerdaten leer.")
+        return data[0]
+
+    def get_follower_count(self, broadcaster_id: str, user_access_token: str) -> int:
+        """GET /channels/followers with the BROADCASTER'S OWN user token
+        (needs moderator:read:followers) - the only way to get a follower
+        count since Twitch locked this down in 2023."""
+        try:
+            response = self._session.get(
+                f"{HELIX_BASE_URL}/channels/followers",
+                params={"broadcaster_id": broadcaster_id, "first": 1},
+                headers={"Client-Id": self.client_id, "Authorization": f"Bearer {user_access_token}"},
+                timeout=DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            raise TwitchAPIError(f"Netzwerkfehler bei Twitch-Follower-Abruf: {exc}") from exc
+        if not response.ok:
+            raise TwitchAPIError(f"Twitch-API-Fehler {response.status_code} bei /channels/followers: {response.text[:300]}")
+        return response.json().get("total", 0)
 
     def get_live_streams(self, logins: list) -> dict:
         """Returns {login_lowercased: stream_data} for whichever of the

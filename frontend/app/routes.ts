@@ -5,6 +5,7 @@ export default [
   route("/news", "routes/news.tsx"),
   route("/news/:slug", "routes/news.$slug.tsx"),
   route("/teams", "routes/teams.tsx"),
+  route("/teams/:id", "routes/teams.$id.tsx"),
   route("/creators", "routes/creators.tsx"),
   route("/join-us", "routes/join-us.tsx"),
   route("/sponsors", "routes/sponsors.tsx"),
@@ -28,5 +29,6 @@ export default [
   route("/admin/teams/:id/edit", "routes/admin/teams.$id.edit.tsx"), // Admin: edit team & roster
   route("/admin/players/:id/edit", "routes/admin/players.$id.edit.tsx"), // Admin: edit a single player
   route("/admin/sponsors", "routes/admin/sponsors.tsx"), // Admin sponsors & social links
+  route("/admin/social-stats", "routes/admin/social-stats.tsx"), // Admin: social media reach (org/players/teams)
   route("/admin/audit-log", "routes/admin/audit-log.tsx"), // Admin audit log (superuser-only)
 ] satisfies RouteConfig;

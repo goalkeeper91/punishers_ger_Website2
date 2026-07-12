@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import os
@@ -27,6 +28,11 @@ from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatc
 from faceit_integration.scheduler import start_scheduler, stop_scheduler
 from twitch_integration.client import TwitchClient, TwitchAPIError, extract_twitch_login
 from audit_log.models import AuditLogEntry
+from social_stats.models import PlayerSocialStats, TwitchAuthorization
+from social_stats import sync as social_stats_sync
+from social_stats import ocr_client
+from social_stats.trends import compute_follower_trend, compute_viewer_stats, record_follower_snapshot
+from social_stats.scheduler import start_scheduler as start_social_stats_scheduler, stop_scheduler as stop_social_stats_scheduler
 from django.conf import settings
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth.models import Group, Permission
@@ -113,8 +119,10 @@ def _log_action(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_scheduler()
+    start_social_stats_scheduler()
     yield
     stop_scheduler()
+    stop_social_stats_scheduler()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -166,6 +174,10 @@ class CustomUserSchema(BaseModel):
     twitter_link: Optional[str] = None
     twitch_link: Optional[str] = None
     youtube_link: Optional[str] = None
+    instagram_link: Optional[str] = None
+    tiktok_link: Optional[str] = None
+    twitch_connected: bool = False
+    twitch_authorized_login: Optional[str] = None
     team_id: Optional[int] = None
     team_name: Optional[str] = None
     is_active: bool
@@ -225,6 +237,8 @@ class UserProfileUpdate(BaseModel):
     twitter_link: Optional[str] = None
     twitch_link: Optional[str] = None
     youtube_link: Optional[str] = None
+    instagram_link: Optional[str] = None
+    tiktok_link: Optional[str] = None
 
 class TokenPair(BaseModel):
     access_token: str
@@ -285,6 +299,16 @@ class SponsorUpdate(BaseModel):
     is_active: Optional[bool] = None
     order: Optional[int] = None
 
+class TrendSchema(BaseModel):
+    change: int
+    percent: Optional[float] = None
+    days: int
+
+class ViewerStatsSchema(BaseModel):
+    avg_viewers: float
+    peak_viewers: int
+    samples: int
+
 class SocialLinkSchema(BaseModel):
     id: int
     platform: str
@@ -292,6 +316,19 @@ class SocialLinkSchema(BaseModel):
     is_active: bool
     order: int
     click_count: int
+    follower_count: Optional[int] = None
+    view_count: Optional[int] = None
+    like_count: Optional[int] = None
+    comment_count: Optional[int] = None
+    share_count: Optional[int] = None
+    reach_count: Optional[int] = None
+    impressions_count: Optional[int] = None
+    data_source: str = "manual"
+    stats_updated_at: Optional[str] = None
+    twitch_connected: bool = False
+    twitch_authorized_login: Optional[str] = None
+    trend: Optional[TrendSchema] = None
+    viewer_stats: Optional[ViewerStatsSchema] = None
 
     class Config:
         from_attributes = True
@@ -307,6 +344,69 @@ class SocialLinkUpdate(BaseModel):
     url: Optional[str] = None
     is_active: Optional[bool] = None
     order: Optional[int] = None
+
+# Platforms that can carry a per-player reach number. Deliberately excludes
+# "discord" (players don't run their own Discord servers) and "other" (no
+# well-defined follower concept) - see social_stats/models.py.
+PLAYER_SOCIAL_PLATFORMS = ["twitch", "youtube", "twitter", "instagram", "tiktok"]
+
+class SocialStatsManualUpdate(BaseModel):
+    follower_count: Optional[int] = None
+    view_count: Optional[int] = None
+    like_count: Optional[int] = None
+    comment_count: Optional[int] = None
+    share_count: Optional[int] = None
+    reach_count: Optional[int] = None
+    impressions_count: Optional[int] = None
+
+class PlayerSocialChannelSchema(BaseModel):
+    platform: str
+    follower_count: Optional[int] = None
+    view_count: Optional[int] = None
+    like_count: Optional[int] = None
+    comment_count: Optional[int] = None
+    share_count: Optional[int] = None
+    reach_count: Optional[int] = None
+    impressions_count: Optional[int] = None
+    data_source: str = "manual"
+    stats_updated_at: Optional[str] = None
+    trend: Optional[TrendSchema] = None
+    viewer_stats: Optional[ViewerStatsSchema] = None
+
+class PlayerReachSchema(BaseModel):
+    user_id: int
+    username: str
+    ingame_name: str
+    team_id: Optional[int] = None
+    team_name: Optional[str] = None
+    channels: List[PlayerSocialChannelSchema] = []
+    total_followers: int = 0
+
+class TeamReachSchema(BaseModel):
+    team_id: int
+    team_name: str
+    player_count: int
+    total_followers: int = 0
+
+class SocialStatsOverviewSchema(BaseModel):
+    org_channels: List[SocialLinkSchema] = []
+    org_total_followers: int = 0
+    players: List[PlayerReachSchema] = []
+    teams: List[TeamReachSchema] = []
+
+class SocialStatsSyncSummary(BaseModel):
+    org_channels_synced: int
+    org_channels_failed: int
+    player_channels_synced: int
+    player_channels_failed: int
+    viewer_snapshots_logged: int = 0
+    viewer_snapshots_failed: int = 0
+    trigger: str
+
+class ScreenshotOcrResult(BaseModel):
+    raw_text: str
+    candidates: List[int]
+    metrics: dict[str, int] = {}
 
 class RoleSchema(BaseModel):
     id: int
@@ -408,6 +508,7 @@ async def build_user_schema(user: CustomUser) -> CustomUserSchema:
     # "everything" for superusers and merges group + user-level permissions -
     # no need to reimplement that logic here.
     permissions = await sync_to_async(lambda: sorted(user.get_all_permissions()))()
+    twitch_auth = await sync_to_async(lambda: getattr(user, "twitch_authorization", None))()
     return CustomUserSchema(
         id=user.id,
         username=user.username,
@@ -420,6 +521,10 @@ async def build_user_schema(user: CustomUser) -> CustomUserSchema:
         twitter_link=user.twitter_link,
         twitch_link=user.twitch_link,
         youtube_link=user.youtube_link,
+        instagram_link=user.instagram_link,
+        tiktok_link=user.tiktok_link,
+        twitch_connected=twitch_auth is not None,
+        twitch_authorized_login=twitch_auth.twitch_login if twitch_auth else None,
         team_id=user.team_id,
         team_name=team_name,
         is_active=user.is_active,
@@ -967,7 +1072,12 @@ async def upload_sponsor_logo(
 
 # --- Social links (public list + click tracking, admin CRUD) ---
 
-def build_social_link_schema(link: SocialLink) -> SocialLinkSchema:
+async def build_social_link_schema(link: SocialLink) -> SocialLinkSchema:
+    twitch_auth = await sync_to_async(lambda: getattr(link, "twitch_authorization", None))()
+    trend = await sync_to_async(compute_follower_trend)(social_link=link, platform=link.platform)
+    viewer_stats = (
+        await sync_to_async(compute_viewer_stats)(social_link=link) if link.platform == "twitch" else None
+    )
     return SocialLinkSchema(
         id=link.id,
         platform=link.platform,
@@ -975,12 +1085,25 @@ def build_social_link_schema(link: SocialLink) -> SocialLinkSchema:
         is_active=link.is_active,
         order=link.order,
         click_count=link.click_count,
+        follower_count=link.follower_count,
+        view_count=link.view_count,
+        like_count=link.like_count,
+        comment_count=link.comment_count,
+        share_count=link.share_count,
+        reach_count=link.reach_count,
+        impressions_count=link.impressions_count,
+        data_source=link.data_source,
+        stats_updated_at=link.stats_updated_at.isoformat() if link.stats_updated_at else None,
+        twitch_connected=twitch_auth is not None,
+        twitch_authorized_login=twitch_auth.twitch_login if twitch_auth else None,
+        trend=TrendSchema(**trend) if trend else None,
+        viewer_stats=ViewerStatsSchema(**viewer_stats) if viewer_stats else None,
     )
 
 @app.get("/socials/", response_model=List[SocialLinkSchema])
 async def get_active_social_links():
     links = await sync_to_async(list)(SocialLink.objects.filter(is_active=True))
-    return [build_social_link_schema(l) for l in links]
+    return [await build_social_link_schema(l) for l in links]
 
 @app.post("/socials/{link_id}/click/", status_code=status.HTTP_204_NO_CONTENT)
 async def track_social_click(link_id: int):
@@ -993,7 +1116,7 @@ async def track_social_click(link_id: int):
 @app.get("/admin/socials/", response_model=List[SocialLinkSchema])
 async def get_all_social_links_admin(current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors"))):
     links = await sync_to_async(list)(SocialLink.objects.all())
-    return [build_social_link_schema(l) for l in links]
+    return [await build_social_link_schema(l) for l in links]
 
 @app.post("/admin/socials/", response_model=SocialLinkSchema, status_code=status.HTTP_201_CREATED)
 async def create_social_link(payload: SocialLinkCreate, current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors"))):
@@ -1006,7 +1129,7 @@ async def create_social_link(payload: SocialLinkCreate, current_admin: CustomUse
         order=payload.order,
     )
     await sync_to_async(_log_action)(current_admin, "create", "SocialLink", link.id, link.platform)
-    return build_social_link_schema(link)
+    return await build_social_link_schema(link)
 
 @app.put("/admin/socials/{link_id}/", response_model=SocialLinkSchema)
 async def update_social_link(link_id: int, payload: SocialLinkUpdate, current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors"))):
@@ -1026,7 +1149,7 @@ async def update_social_link(link_id: int, payload: SocialLinkUpdate, current_ad
     if update_fields:
         await sync_to_async(link.save)(update_fields=update_fields)
         await sync_to_async(_log_action)(current_admin, "update", "SocialLink", link.id, link.platform, {"fields": update_fields})
-    return build_social_link_schema(link)
+    return await build_social_link_schema(link)
 
 @app.delete("/admin/socials/{link_id}/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_social_link(link_id: int, current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors"))):
@@ -1037,6 +1160,375 @@ async def delete_social_link(link_id: int, current_admin: CustomUser = Depends(r
     link_platform = link.platform
     await sync_to_async(link.delete)()
     await sync_to_async(_log_action)(current_admin, "delete", "SocialLink", link_id, link_platform)
+
+# --- Social media reach stats (org + players + teams), for sponsor reporting ---
+# Teams don't have their own channels (per product decision) - a team's
+# reach is just the sum of its roster players' reach.
+
+def _player_link_for_platform(user: CustomUser, platform: str) -> Optional[str]:
+    return {
+        "twitch": user.twitch_link,
+        "youtube": user.youtube_link,
+        "twitter": user.twitter_link,
+        "instagram": user.instagram_link,
+        "tiktok": user.tiktok_link,
+    }.get(platform)
+
+async def _build_player_channel_schema(
+    user: CustomUser, platform: str, row: Optional[PlayerSocialStats]
+) -> PlayerSocialChannelSchema:
+    trend = await sync_to_async(compute_follower_trend)(user=user, platform=platform)
+    viewer_stats = await sync_to_async(compute_viewer_stats)(user=user) if platform == "twitch" else None
+    return PlayerSocialChannelSchema(
+        platform=platform,
+        follower_count=row.follower_count if row else None,
+        view_count=row.view_count if row else None,
+        like_count=row.like_count if row else None,
+        comment_count=row.comment_count if row else None,
+        share_count=row.share_count if row else None,
+        reach_count=row.reach_count if row else None,
+        impressions_count=row.impressions_count if row else None,
+        data_source=row.data_source if row else "manual",
+        stats_updated_at=row.stats_updated_at.isoformat() if row and row.stats_updated_at else None,
+        trend=TrendSchema(**trend) if trend else None,
+        viewer_stats=ViewerStatsSchema(**viewer_stats) if viewer_stats else None,
+    )
+
+async def _build_social_stats_overview() -> SocialStatsOverviewSchema:
+    org_links = await sync_to_async(list)(SocialLink.objects.filter(is_active=True))
+    org_channels = [await build_social_link_schema(l) for l in org_links]
+    org_total = sum(c.follower_count or 0 for c in org_channels)
+
+    players = await sync_to_async(list)(Player.objects.select_related('user', 'team').filter(user__isnull=False))
+    stats_rows = await sync_to_async(list)(PlayerSocialStats.objects.all())
+    stats_by_user: dict = {}
+    for row in stats_rows:
+        stats_by_user.setdefault(row.user_id, {})[row.platform] = row
+
+    players_schema: List[PlayerReachSchema] = []
+    team_totals: dict = {}
+
+    for player in players:
+        user = player.user
+        user_stats = stats_by_user.get(user.id, {})
+        channels = []
+        total = 0
+        for platform in PLAYER_SOCIAL_PLATFORMS:
+            row = user_stats.get(platform)
+            if not _player_link_for_platform(user, platform) and not row:
+                continue  # no channel linked and nothing manually entered - skip
+            channel = await _build_player_channel_schema(user, platform, row)
+            channels.append(channel)
+            total += channel.follower_count or 0
+
+        players_schema.append(PlayerReachSchema(
+            user_id=user.id,
+            username=user.username,
+            ingame_name=player.ingame_name,
+            team_id=player.team_id,
+            team_name=player.team.name if player.team else None,
+            channels=channels,
+            total_followers=total,
+        ))
+
+        if player.team_id:
+            bucket = team_totals.setdefault(
+                player.team_id, {"team_name": player.team.name, "player_count": 0, "total_followers": 0}
+            )
+            bucket["player_count"] += 1
+            bucket["total_followers"] += total
+
+    players_schema.sort(key=lambda p: p.total_followers, reverse=True)
+    teams_schema = sorted(
+        (
+            TeamReachSchema(team_id=team_id, **data)
+            for team_id, data in team_totals.items()
+        ),
+        key=lambda t: t.total_followers,
+        reverse=True,
+    )
+
+    return SocialStatsOverviewSchema(
+        org_channels=org_channels,
+        org_total_followers=org_total,
+        players=players_schema,
+        teams=teams_schema,
+    )
+
+@app.get("/admin/social-stats/", response_model=SocialStatsOverviewSchema)
+async def get_social_stats_overview(current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors"))):
+    return await _build_social_stats_overview()
+
+@app.put("/admin/social-stats/org/{link_id}/", response_model=SocialLinkSchema)
+async def update_org_social_stats(
+    link_id: int,
+    payload: SocialStatsManualUpdate,
+    current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors")),
+):
+    try:
+        link = await sync_to_async(SocialLink.objects.get)(id=link_id)
+    except SocialLink.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Social link not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(link, field, value)
+    link.data_source = "manual"
+    link.stats_updated_at = datetime.now(timezone.utc)
+    await sync_to_async(link.save)(update_fields=list(data.keys()) + ["data_source", "stats_updated_at"])
+    await sync_to_async(record_follower_snapshot)(social_link=link, platform=link.platform, **data)
+    await sync_to_async(_log_action)(
+        current_admin, "update", "SocialLinkStats", link.id, link.platform, {"fields": list(data.keys())}
+    )
+    return await build_social_link_schema(link)
+
+@app.put("/admin/social-stats/players/{user_id}/{platform}/", response_model=PlayerSocialChannelSchema)
+async def update_player_social_stats(
+    user_id: int,
+    platform: str,
+    payload: SocialStatsManualUpdate,
+    current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors")),
+):
+    if platform not in PLAYER_SOCIAL_PLATFORMS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid platform")
+    try:
+        user = await sync_to_async(CustomUser.objects.get)(id=user_id)
+    except CustomUser.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    now = datetime.now(timezone.utc)
+    row, _ = await sync_to_async(PlayerSocialStats.objects.update_or_create)(
+        user=user, platform=platform, defaults={**data, "data_source": "manual", "stats_updated_at": now}
+    )
+    await sync_to_async(record_follower_snapshot)(user=user, platform=platform, **data)
+    await sync_to_async(_log_action)(
+        current_admin, "update", "PlayerSocialStats", user.id, f"{user.username} ({platform})", {"fields": list(data.keys())}
+    )
+    return await _build_player_channel_schema(user, platform, row)
+
+@app.get("/social-stats/me/", response_model=List[PlayerSocialChannelSchema])
+async def get_my_social_stats(current_user: CustomUser = Depends(get_current_user)):
+    """Self-service view of the current user's own channels - separate from
+    the admin-only /admin/social-stats/ overview so a player never needs an
+    admin to see or update their own numbers (screenshot upload flow)."""
+    stats_by_platform = await sync_to_async(
+        lambda: {row.platform: row for row in PlayerSocialStats.objects.filter(user=current_user)}
+    )()
+    channels = []
+    for platform in PLAYER_SOCIAL_PLATFORMS:
+        row = stats_by_platform.get(platform)
+        if not _player_link_for_platform(current_user, platform) and not row:
+            continue
+        channels.append(await _build_player_channel_schema(current_user, platform, row))
+    return channels
+
+@app.put("/social-stats/me/{platform}/", response_model=PlayerSocialChannelSchema)
+async def update_my_social_stats(
+    platform: str,
+    payload: SocialStatsManualUpdate,
+    current_user: CustomUser = Depends(get_current_user),
+):
+    """Same as update_player_social_stats but self-scoped - no
+    sponsors.manage_sponsors permission needed since a player can only ever
+    touch their own row here."""
+    if platform not in PLAYER_SOCIAL_PLATFORMS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid platform")
+
+    data = payload.model_dump(exclude_unset=True)
+    now = datetime.now(timezone.utc)
+    row, _ = await sync_to_async(PlayerSocialStats.objects.update_or_create)(
+        user=current_user, platform=platform, defaults={**data, "data_source": "manual", "stats_updated_at": now}
+    )
+    await sync_to_async(record_follower_snapshot)(user=current_user, platform=platform, **data)
+    await sync_to_async(_log_action)(
+        current_user, "update", "PlayerSocialStats", current_user.id, f"{current_user.username} ({platform})", {"fields": list(data.keys())}
+    )
+    return await _build_player_channel_schema(current_user, platform, row)
+
+@app.post("/admin/social-stats/sync/", response_model=SocialStatsSyncSummary)
+async def trigger_social_stats_sync(current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors"))):
+    summary = await sync_to_async(social_stats_sync.sync_all)(trigger="manual")
+    await sync_to_async(_log_action)(current_admin, "sync", "SocialStats", None, None, summary)
+    return SocialStatsSyncSummary(**summary)
+
+@app.post("/social-stats/screenshot/", response_model=ScreenshotOcrResult)
+async def analyze_social_screenshot(
+    file: UploadFile = File(...),
+    current_user: CustomUser = Depends(get_current_user),
+):
+    """Reads a follower-count screenshot with local OCR and suggests a
+    number - never saved on its own. The caller (profile page or admin
+    social-stats page) pre-fills the existing manual follower_count input
+    with the suggestion so a human still confirms/corrects before the
+    normal update_org_social_stats/update_player_social_stats endpoint
+    actually persists anything. The upload is never written to disk -
+    processed entirely from the in-memory bytes below."""
+    content = await file.read()
+    await file.close()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Datei ist leer.")
+    if len(content) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Datei zu groß (max. {MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)} MB).",
+        )
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Datei ist kein Bild.")
+
+    try:
+        result = await sync_to_async(ocr_client.extract_follower_candidates)(content)
+    except ocr_client.OcrError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    return ScreenshotOcrResult(**result)
+
+# --- Twitch OAuth (user-context) - connecting a channel so its follower
+# count can be synced automatically. Separate from the app-token flow used
+# for live status; see twitch_integration/client.py for why Twitch requires
+# this per-channel consent since 2023. `state` carries who's connecting
+# (signed with our own JWT secret, same as access/refresh tokens) since the
+# browser redirect back from Twitch has no Authorization header to identify
+# the request. ---
+
+TWITCH_OAUTH_STATE_TYPE = "twitch_oauth_state"
+TWITCH_OAUTH_STATE_EXPIRE_MINUTES = 10
+
+def _twitch_redirect_uri() -> str:
+    # Must exactly match a redirect URI registered for this app at
+    # https://dev.twitch.tv/console - see README "Environment-Variablen".
+    return f"{settings.BACKEND_BASE_URL}/social-stats/twitch/callback/"
+
+def _create_twitch_oauth_state(user_id: int, target: str, social_link_id: Optional[int]) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "type": TWITCH_OAUTH_STATE_TYPE,
+        "target": target,
+        "social_link_id": social_link_id,
+        "iat": now,
+        "exp": now + timedelta(minutes=TWITCH_OAUTH_STATE_EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+def _decode_twitch_oauth_state(state: str) -> dict:
+    try:
+        payload = jwt.decode(state, settings.JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Twitch-Autorisierung abgelaufen, bitte erneut versuchen.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiger State-Parameter.")
+    if payload.get("type") != TWITCH_OAUTH_STATE_TYPE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiger State-Parameter.")
+    return payload
+
+async def _store_twitch_authorization(
+    *, user: Optional[CustomUser], social_link: Optional[SocialLink], token_data: dict, twitch_user: dict
+) -> TwitchAuthorization:
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=token_data.get("expires_in", 3600))
+    defaults = {
+        "twitch_user_id": twitch_user["id"],
+        "twitch_login": twitch_user["login"],
+        "access_token": token_data["access_token"],
+        "refresh_token": token_data["refresh_token"],
+        "token_expires_at": expires_at,
+    }
+    if user is not None:
+        auth, _ = await sync_to_async(TwitchAuthorization.objects.update_or_create)(user=user, defaults=defaults)
+    else:
+        auth, _ = await sync_to_async(TwitchAuthorization.objects.update_or_create)(social_link=social_link, defaults=defaults)
+    return auth
+
+@app.get("/social-stats/twitch/authorize-url/")
+async def get_twitch_authorize_url(
+    target: str,
+    social_link_id: Optional[int] = None,
+    current_user: CustomUser = Depends(get_current_user),
+):
+    if target not in ("player", "org"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid target")
+
+    if target == "org":
+        has_perm = await sync_to_async(current_user.has_perm)("sponsors.manage_sponsors")
+        if not has_perm:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        if social_link_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="social_link_id required for org target")
+        try:
+            link = await sync_to_async(SocialLink.objects.get)(id=social_link_id)
+        except SocialLink.DoesNotExist:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Social link not found")
+        if link.platform != "twitch":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Social link is not a Twitch channel")
+
+    try:
+        client = TwitchClient()
+    except TwitchAPIError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+
+    state = _create_twitch_oauth_state(current_user.id, target, social_link_id)
+    return {"url": client.build_user_authorize_url(_twitch_redirect_uri(), state)}
+
+@app.get("/social-stats/twitch/callback/")
+async def twitch_oauth_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    frontend_base = settings.FRONTEND_BASE_URL
+    if error or not code or not state:
+        return RedirectResponse(f"{frontend_base}/profile?twitch_error=1")
+
+    payload = _decode_twitch_oauth_state(state)
+    try:
+        user = await sync_to_async(CustomUser.objects.get)(id=int(payload["sub"]))
+    except (CustomUser.DoesNotExist, KeyError, ValueError, TypeError):
+        return RedirectResponse(f"{frontend_base}/profile?twitch_error=1")
+
+    target = payload.get("target")
+    social_link_id = payload.get("social_link_id")
+
+    try:
+        client = TwitchClient()
+        token_data = client.exchange_authorization_code(code, _twitch_redirect_uri())
+        twitch_user = client.get_authenticated_user(token_data["access_token"])
+        follower_count = client.get_follower_count(twitch_user["id"], token_data["access_token"])
+    except TwitchAPIError:
+        logger.exception("Twitch-OAuth-Austausch fehlgeschlagen")
+        redirect_path = "/admin/social-stats" if target == "org" else "/profile"
+        return RedirectResponse(f"{frontend_base}{redirect_path}?twitch_error=1")
+
+    now = datetime.now(timezone.utc)
+    if target == "org":
+        try:
+            link = await sync_to_async(SocialLink.objects.get)(id=social_link_id)
+        except SocialLink.DoesNotExist:
+            return RedirectResponse(f"{frontend_base}/admin/social-stats?twitch_error=1")
+        await _store_twitch_authorization(user=None, social_link=link, token_data=token_data, twitch_user=twitch_user)
+        link.follower_count = follower_count
+        link.data_source = "auto"
+        link.stats_updated_at = now
+        await sync_to_async(link.save)(update_fields=["follower_count", "data_source", "stats_updated_at"])
+        await sync_to_async(record_follower_snapshot)(social_link=link, platform="twitch", follower_count=follower_count)
+        await sync_to_async(_log_action)(user, "connect", "SocialLinkTwitch", link.id, twitch_user["login"])
+        return RedirectResponse(f"{frontend_base}/admin/social-stats?twitch_connected=1")
+
+    await _store_twitch_authorization(user=user, social_link=None, token_data=token_data, twitch_user=twitch_user)
+    await sync_to_async(PlayerSocialStats.objects.update_or_create)(
+        user=user,
+        platform="twitch",
+        defaults={"follower_count": follower_count, "data_source": "auto", "stats_updated_at": now},
+    )
+    await sync_to_async(record_follower_snapshot)(user=user, platform="twitch", follower_count=follower_count)
+    if not user.twitch_link:
+        user.twitch_link = f"https://www.twitch.tv/{twitch_user['login']}"
+        await sync_to_async(user.save)(update_fields=["twitch_link"])
+    await sync_to_async(_log_action)(user, "connect", "PlayerTwitch", user.id, twitch_user["login"])
+    return RedirectResponse(f"{frontend_base}/profile?twitch_connected=1")
+
+@app.delete("/social-stats/twitch/player/", status_code=status.HTTP_204_NO_CONTENT)
+async def disconnect_twitch_player(current_user: CustomUser = Depends(get_current_user)):
+    await sync_to_async(TwitchAuthorization.objects.filter(user=current_user).delete)()
+
+@app.delete("/admin/social-stats/twitch/org/{link_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def disconnect_twitch_org(link_id: int, current_admin: CustomUser = Depends(require_permission("sponsors.manage_sponsors"))):
+    await sync_to_async(TwitchAuthorization.objects.filter(social_link_id=link_id).delete)()
+    await sync_to_async(_log_action)(current_admin, "disconnect", "SocialLinkTwitch", link_id)
 
 async def build_player_schema(player: Player) -> PlayerSchema:
     player_user = await build_user_schema(player.user) if player.user else None

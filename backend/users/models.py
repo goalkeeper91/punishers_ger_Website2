@@ -25,7 +25,8 @@ class CustomUser(AbstractUser):
     twitter_link = models.URLField(max_length=200, blank=True, null=True)
     twitch_link = models.URLField(max_length=200, blank=True, null=True)
     youtube_link = models.URLField(max_length=200, blank=True, null=True)
-    # Weitere Social Media Links nach Bedarf
+    instagram_link = models.URLField(max_length=200, blank=True, null=True)
+    tiktok_link = models.URLField(max_length=200, blank=True, null=True)
 
     # Content-Creator-Präsenz auf /creators. Getrennt von den "roles" (Gruppen)
     # gehalten, da das reine Content-Kategorisierung ist, keine Berechtigung.

@@ -56,6 +56,10 @@ ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 # media URLs (profile pictures, news images, ...) returned to the frontend.
 BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "http://localhost:8000")
 
+# Public base URL of the frontend SPA; used to redirect the browser back
+# after third-party OAuth flows (see social_stats/ Twitch connect).
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
+
 # Origins allowed to call the FastAPI API directly from the browser.
 CORS_ORIGINS = _env_list(
     "CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"
@@ -82,6 +86,13 @@ FACEIT_SYNC_INTERVAL_MINUTES = int(os.environ.get("FACEIT_SYNC_INTERVAL_MINUTES"
 TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID") or None
 TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET") or None
 
+# Social-media reach stats (see social_stats/). YouTube Data API v3 key from
+# https://console.cloud.google.com/apis/credentials - public read-only, no
+# per-channel OAuth needed. Discord's invite-based member count needs no key
+# at all (see social_stats/discord_client.py).
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY") or None
+SOCIAL_STATS_SYNC_INTERVAL_MINUTES = int(os.environ.get("SOCIAL_STATS_SYNC_INTERVAL_MINUTES", "360"))
+
 
 # Application definition
 
@@ -99,6 +110,7 @@ INSTALLED_APPS = [
     'sponsors',
     'faceit_integration',
     'audit_log',
+    'social_stats',
 ]
 
 MIDDLEWARE = [
