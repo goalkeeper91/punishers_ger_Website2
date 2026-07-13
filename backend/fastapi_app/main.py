@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
+import re
 
 import logging
 
@@ -10,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional
 import os
 import django
@@ -309,6 +310,9 @@ class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
 
+STEAM64_BASE = 76561197960265728  # SteamID64 for the lowest valid account (Y=0, Z=0)
+STEAM2_PATTERN = re.compile(r"STEAM_([0-5]):([01]):(\d+)", re.IGNORECASE)
+
 class UserProfileUpdate(BaseModel):
     # max_length values mirror the CharField/URLField columns in
     # users/models.py exactly - without these, an over-length value (e.g. a
@@ -325,6 +329,23 @@ class UserProfileUpdate(BaseModel):
     youtube_link: Optional[str] = Field(None, max_length=200)
     instagram_link: Optional[str] = Field(None, max_length=200)
     tiktok_link: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("steam_id", mode="before")
+    @classmethod
+    def _normalize_steam_id(cls, value):
+        # Runs in "before" mode (ahead of the max_length=17 check above) so
+        # a legacy Steam2 ID (e.g. "STEAM_0:1:123456789", 19 chars) gets
+        # converted to its canonical SteamID64 form before that length check
+        # ever sees it - the raw SteamID64 (17-digit numeric string) that
+        # most tools also show is left untouched.
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        match = STEAM2_PATTERN.fullmatch(value)
+        if not match:
+            return value
+        y, z = int(match.group(2)), int(match.group(3))
+        return str(STEAM64_BASE + z * 2 + y)
 
 class TokenPair(BaseModel):
     access_token: str
@@ -976,6 +997,15 @@ async def update_user_profile(
 
     update_fields = []
     for field, value in user_update.model_dump(exclude_unset=True).items():
+        # first_name/last_name are Django's own AbstractUser CharFields:
+        # blank=True but NOT null=True, so the DB column rejects NULL - the
+        # frontend sends null for a cleared field (see profile/index.tsx),
+        # which is fine for the columns CustomUser defines itself with
+        # null=True (steam_id, the *_link fields) but crashes with an
+        # IntegrityError on these two. Django's own field introspection
+        # tells us which is which, rather than hardcoding a field list here.
+        if value is None and not CustomUser._meta.get_field(field).null:
+            value = ""
         setattr(user, field, value)
         update_fields.append(field)
 
