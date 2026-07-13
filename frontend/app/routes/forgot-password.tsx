@@ -1,4 +1,4 @@
-import type { ActionFunction, LoaderFunction } from "react-router";
+import type { ClientActionFunction, LoaderFunction } from "react-router";
 import { Form, useActionData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
@@ -9,8 +9,11 @@ export const loader: LoaderFunction = async () => {
   return null;
 };
 
-export const action: ActionFunction = async ({ request }) => {
-  const language = getLanguageFromCookieHeader(request.headers.get("Cookie"));
+// Runs in the browser: VITE_API_BASE_URL is a relative path in production
+// ("/api"), which only resolves against a page origin - a server-side
+// action has none, so this must be a clientAction (see login.tsx).
+export const clientAction: ClientActionFunction = async ({ request }) => {
+  const language = getLanguageFromCookieHeader(document.cookie);
   const t = (key: string) => translate(language, key, "auth");
 
   const formData = await request.formData();
