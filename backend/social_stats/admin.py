@@ -13,4 +13,6 @@ class PlayerSocialStatsAdmin(admin.ModelAdmin):
 class TwitchAuthorizationAdmin(admin.ModelAdmin):
     list_display = ('twitch_login', 'user', 'social_link', 'connected_at', 'token_expires_at')
     search_fields = ('twitch_login', 'user__username', 'social_link__url')
-    readonly_fields = ('access_token', 'refresh_token')
+    # Never shown, even to a superuser looking at this in Django admin - no
+    # legitimate reason to ever display a live bearer token on screen.
+    exclude = ('access_token', 'refresh_token')

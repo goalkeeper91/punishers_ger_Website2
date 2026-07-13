@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from .crypto import EncryptedTextField
+
 # Reuse the same platform set as sponsors.SocialLink (org channels) so
 # players and the org are always compared on the same axis.
 PLATFORM_CHOICES = [
@@ -81,11 +83,12 @@ class TwitchAuthorization(models.Model):
     )
     twitch_user_id = models.CharField(max_length=64)
     twitch_login = models.CharField(max_length=100)
-    # Plain-text like the rest of this project's credential storage (Django's
-    # own session/password infra aside) - protected by the same DB access
-    # boundary as everything else, never returned via any API response.
-    access_token = models.TextField()
-    refresh_token = models.TextField()
+    # Encrypted at rest (see crypto.EncryptedTextField) - these are live
+    # bearer credentials for the broadcaster's Twitch account, so a DB
+    # dump/leak shouldn't hand them over in plain text. Never returned via
+    # any API response either way.
+    access_token = EncryptedTextField()
+    refresh_token = EncryptedTextField()
     token_expires_at = models.DateTimeField()
 
     connected_at = models.DateTimeField(auto_now_add=True)

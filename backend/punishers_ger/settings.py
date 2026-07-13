@@ -10,6 +10,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import base64
+import hashlib
 import os
 from pathlib import Path
 
@@ -71,6 +73,16 @@ JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", SECRET_KEY)
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 JWT_REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+
+# At-rest encryption for stored third-party OAuth tokens (social_stats.
+# TwitchAuthorization - see social_stats/crypto.py). Fernet needs a 32-byte
+# urlsafe-base64 key; deriving one from SECRET_KEY means local dev needs no
+# extra setup, but production should set ENCRYPTION_KEY explicitly so
+# rotating SECRET_KEY doesn't silently break decryption of already-stored
+# tokens (generate one with `Fernet.generate_key()`).
+ENCRYPTION_KEY = os.environ.get(
+    "ENCRYPTION_KEY", base64.urlsafe_b64encode(hashlib.sha256(SECRET_KEY.encode()).digest()).decode()
+)
 
 # Password-reset links (see users/emails.py) expire after this long.
 PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = int(os.environ.get("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30"))

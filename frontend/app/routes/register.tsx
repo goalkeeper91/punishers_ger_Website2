@@ -54,16 +54,13 @@ export const action: ActionFunction = async ({ request }) => {
     const data = await response.json();
 
     if (!response.ok) {
-      // Handle specific backend errors
+      // The backend never reveals whether an email is already registered
+      // (see fastapi_app/main.py register_user) - only the username-taken
+      // case is a distinct, safe-to-show field error; everything else
+      // (weak/similar password, ...) is a general error.
       const message = extractErrorMessage(data, "Registrierung fehlgeschlagen. Bitte versuchen Sie es erneut.");
-      if (response.status === 400 && data.detail) {
-        if (message.includes("username")) {
-          errors.username = "Dieser Benutzername ist bereits vergeben.";
-        } else if (message.includes("email")) {
-          errors.email = "Diese E-Mail Adresse ist bereits registriert.";
-        } else {
-          errors.general = message;
-        }
+      if (response.status === 400 && message === "Username already registered") {
+        errors.username = "Dieser Benutzername ist bereits vergeben.";
       } else {
         errors.general = message;
       }

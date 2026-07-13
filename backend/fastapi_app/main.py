@@ -37,6 +37,8 @@ from social_stats.trends import compute_follower_trend, compute_viewer_stats, re
 from social_stats.scheduler import start_scheduler as start_social_stats_scheduler, stop_scheduler as stop_social_stats_scheduler
 from django.conf import settings
 from django.contrib.auth.hashers import make_password, check_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.models import Group, Permission
 from django.db.models import F
 from django.utils.text import slugify
@@ -136,6 +138,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    # Baseline hardening against a third-party page tricking a browser into
+    # misusing this API (framing, MIME-sniffing a served upload as HTML/JS,
+    # leaking the current URL to an external site via Referer). HSTS is
+    # deliberately not set here - it depends on TLS actually being terminated
+    # in front of this app, which is a deployment/reverse-proxy concern, not
+    # something this application process can promise on its own.
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response
+
 # Serve uploaded media (profile pics, team/player images, sponsor logos, news
 # images) - build_media_url() above builds URLs as BACKEND_BASE_URL + MEDIA_URL,
 # i.e. this same FastAPI app on the same port, so it has to be the one
@@ -213,6 +230,54 @@ class TeamSchema(BaseModel):
     image_url: Optional[str] = None
     is_main_team: bool
     players: List[PlayerSchema] = []
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+# Public, unauthenticated view of a user - deliberately excludes email,
+# steam_id, is_staff/is_superuser, roles and permissions. CustomUserSchema
+# (above) is the full picture and must only ever go out behind auth
+# (see get_current_user/require_permission); anything reachable without a
+# token - GET /teams/, /teams/{id}/, /users/{username}/ - uses this instead,
+# same idea as the existing public Creator schema for GET /creators/.
+class PublicUserSchema(BaseModel):
+    id: int
+    username: str
+    profile_picture_url: Optional[str] = None
+    game_profile_link: Optional[str] = None
+    twitter_link: Optional[str] = None
+    twitch_link: Optional[str] = None
+    youtube_link: Optional[str] = None
+    instagram_link: Optional[str] = None
+    tiktok_link: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class PublicPlayerSchema(BaseModel):
+    id: int
+    ingame_name: str
+    role: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    team_id: Optional[int] = None
+    user: Optional[PublicUserSchema] = None
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+class PublicTeamSchema(BaseModel):
+    id: int
+    name: str
+    game: str
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    is_main_team: bool
+    players: List[PublicPlayerSchema] = []
     created_at: str
     updated_at: str
 
@@ -762,41 +827,67 @@ async def ensure_team_access(current_user: CustomUser, team: Team) -> None:
 async def root():
     return {"message": "Welcome to the FastAPI backend!"}
 
-@app.post("/register/", response_model=CustomUserSchema, status_code=status.HTTP_201_CREATED)
+def _validate_password_or_400(password: str, user: Optional[CustomUser] = None) -> None:
+    try:
+        validate_password(password, user)
+    except DjangoValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=" ".join(exc.messages))
+
+
+@app.post("/register/", status_code=status.HTTP_201_CREATED)
 async def register_user(user_data: UserRegister):
     if await sync_to_async(CustomUser.objects.filter(username=user_data.username).exists)():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already registered"
         )
-    if await sync_to_async(CustomUser.objects.filter(email=user_data.email).exists)():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+
+    # Uses Django's configured AUTH_PASSWORD_VALIDATORS (min length, not too
+    # similar to username/email, not a common password, ...) - this project
+    # bypasses Django's own auth views entirely, so nothing else enforces them.
+    candidate = CustomUser(username=user_data.username, email=user_data.email)
+    await sync_to_async(_validate_password_or_400)(user_data.password, candidate)
+
+    email_taken = await sync_to_async(CustomUser.objects.filter(email=user_data.email).exists)()
+    if not email_taken:
+        hashed_password = await sync_to_async(make_password)(user_data.password)
+        await sync_to_async(CustomUser.objects.create)(
+            username=user_data.username,
+            email=user_data.email,
+            password=hashed_password,
+            is_active=False,
         )
 
-    hashed_password = await sync_to_async(make_password)(user_data.password)
+    # Identical response whether or not the email was already registered -
+    # this can't be used to enumerate accounts by email address. Whoever
+    # actually owns that email is unaffected (no duplicate account, no
+    # notification sent to them) and the caller can't tell the difference.
+    return {"detail": "Registrierung erfolgreich. Ein Administrator wird dein Konto prüfen und freischalten."}
 
-    user = await sync_to_async(CustomUser.objects.create)(
-        username=user_data.username,
-        email=user_data.email,
-        password=hashed_password,
-        is_active=False,
-    )
 
-    return await build_user_schema(user)
+_DUMMY_PASSWORD_HASH = make_password("not-a-real-password-used-only-for-timing")
+
 
 @app.post("/login/", response_model=TokenPair)
 async def login_user(user_data: UserLogin):
-    try:
-        user = await sync_to_async(CustomUser.objects.get)(email=user_data.email)
-    except CustomUser.DoesNotExist:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
-        )
+    def _authenticate() -> Optional[CustomUser]:
+        try:
+            user = CustomUser.objects.get(email=user_data.email)
+        except CustomUser.DoesNotExist:
+            # Mirrors Django's own ModelBackend.authenticate(): run the
+            # password hasher anyway, so a nonexistent email doesn't respond
+            # measurably faster than a wrong password for a real one - a
+            # timing side-channel that could otherwise be used to enumerate
+            # registered email addresses even though the error message here
+            # is already identical either way.
+            check_password(user_data.password, _DUMMY_PASSWORD_HASH)
+            return None
+        if not check_password(user_data.password, user.password):
+            return None
+        return user
 
-    if not await sync_to_async(check_password)(user_data.password, user.password):
+    user = await sync_to_async(_authenticate)()
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
@@ -824,10 +915,17 @@ async def request_password_reset(body: PasswordResetRequest):
 
 @app.post("/password-reset/confirm/")
 async def confirm_password_reset(body: PasswordResetConfirm):
-    if len(body.new_password) < 6:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passwort muss mindestens 6 Zeichen lang sein.")
-
     user = await sync_to_async(_decode_password_reset_token)(body.token)
+
+    # Belt-and-suspenders: request_password_reset() already only emails
+    # active users, but a deactivated account must never regain access
+    # through any path, including one where a link was requested just
+    # before an admin deactivated it.
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Dieses Konto ist deaktiviert.")
+
+    await sync_to_async(_validate_password_or_400)(body.new_password, user)
+
     user.password = await sync_to_async(make_password)(body.new_password)
     await sync_to_async(user.save)(update_fields=["password"])
     return {"detail": "Passwort erfolgreich zurückgesetzt."}
@@ -1634,19 +1732,62 @@ async def build_team_schema(team: Team) -> TeamSchema:
         updated_at=team.updated_at.isoformat(),
     )
 
-@app.get("/teams/", response_model=List[TeamSchema])
+async def build_public_user_schema(user: CustomUser) -> PublicUserSchema:
+    return PublicUserSchema(
+        id=user.id,
+        username=user.username,
+        profile_picture_url=build_media_url(user.profile_picture),
+        game_profile_link=user.game_profile_link,
+        twitter_link=user.twitter_link,
+        twitch_link=user.twitch_link,
+        youtube_link=user.youtube_link,
+        instagram_link=user.instagram_link,
+        tiktok_link=user.tiktok_link,
+    )
+
+async def build_public_player_schema(player: Player) -> PublicPlayerSchema:
+    player_user = await build_public_user_schema(player.user) if player.user else None
+    team_id = await sync_to_async(lambda: player.team.id if player.team else None)()
+    return PublicPlayerSchema(
+        id=player.id,
+        ingame_name=player.ingame_name,
+        role=player.role,
+        description=player.description,
+        image_url=build_media_url(player.image),
+        team_id=team_id,
+        user=player_user,
+        created_at=player.created_at.isoformat(),
+        updated_at=player.updated_at.isoformat(),
+    )
+
+async def build_public_team_schema(team: Team) -> PublicTeamSchema:
+    players_for_team = await sync_to_async(list)(team.players.select_related('user').all())
+    team_players = [await build_public_player_schema(player) for player in players_for_team]
+    return PublicTeamSchema(
+        id=team.id,
+        name=team.name,
+        game=team.game,
+        description=team.description,
+        image_url=build_media_url(team.image),
+        is_main_team=team.is_main_team,
+        players=team_players,
+        created_at=team.created_at.isoformat(),
+        updated_at=team.updated_at.isoformat(),
+    )
+
+@app.get("/teams/", response_model=List[PublicTeamSchema])
 async def get_all_teams():
     teams = await sync_to_async(list)(Team.objects.all().order_by('name'))
-    return [await build_team_schema(team) for team in teams]
+    return [await build_public_team_schema(team) for team in teams]
 
-@app.get("/teams/{team_id}/", response_model=TeamSchema)
+@app.get("/teams/{team_id}/", response_model=PublicTeamSchema)
 async def get_team_by_id(team_id: int):
     try:
         team = await sync_to_async(Team.objects.get)(id=team_id)
     except Team.DoesNotExist:
         raise HTTPException(status_code=404, detail="Team not found")
 
-    return await build_team_schema(team)
+    return await build_public_team_schema(team)
 
 # --- Public match highlights (for the homepage widget) ---
 
@@ -1995,14 +2136,17 @@ async def upload_player_image(
     await sync_to_async(_log_action)(current_user, "update", "Player", player.id, player.ingame_name, {"fields": ["image"]})
     return await build_player_schema(player)
 
-@app.get("/users/{username}/", response_model=CustomUserSchema)
+@app.get("/users/{username}/", response_model=PublicUserSchema)
 async def get_user_profile(username: str):
+    # Public/unauthenticated - must never return CustomUserSchema (email,
+    # is_staff/is_superuser, roles, permissions), only what's meant to be a
+    # public player card.
     try:
         user = await sync_to_async(CustomUser.objects.get)(username=username)
     except CustomUser.DoesNotExist:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return await build_user_schema(user)
+    return await build_public_user_schema(user)
 
 # --- Admin: roles (Django groups) & permissions ---
 #
