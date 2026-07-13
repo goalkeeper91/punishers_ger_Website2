@@ -1,6 +1,9 @@
-# Production stack: db + backend + libretranslate + frontend + caddy.
-# On the target server, the only required action is: fill in a root .env
-# (see .env.example) and run `docker compose up -d`.
+# Production stack: db + backend + libretranslate + frontend.
+# This deployment target joins an *existing* reverse proxy that already owns
+# host ports 80/443 (see README "Produktion mit Docker") instead of bundling
+# its own - `backend` and `frontend` attach to the external
+# `goalkeeper_prod_network` so that proxy can reach them by service name.
+# `db` and `libretranslate` stay off that network; the proxy never needs them.
 #
 # IMPORTANT: `backend` must stay at exactly one replica. It runs two
 # in-process APScheduler jobs (FACEIT sync, social-stats sync) that are not
@@ -74,6 +77,9 @@ services:
     volumes:
       - media_data:/app/media
       - staticfiles_data:/app/staticfiles
+    networks:
+      - default
+      - shared
 
   frontend:
     build:
@@ -81,28 +87,18 @@ services:
     restart: unless-stopped
     environment:
       PORT: "3000"
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      DOMAIN: ${DOMAIN:-localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - backend
-      - frontend
+    networks:
+      - default
+      - shared
 
 volumes:
   postgres_data:
   libretranslate_data:
   media_data:
   staticfiles_data:
-  caddy_data:
-  caddy_config:
+
+networks:
+  default:
+  shared:
+    name: ${SHARED_NETWORK_NAME:-goalkeeper_prod_network}
+    external: true

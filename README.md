@@ -200,7 +200,7 @@ Für Sponsoren-Reportings: aggregierte Reichweite (Follower/Abos) der Org-eigene
 ## Projektstruktur
 
 ```
-docker-compose.yml / Caddyfile / .env.example   Produktions-Stack (siehe "Produktion mit Docker")
+docker-compose.yml / .env.example   Produktions-Stack (siehe "Produktion mit Docker")
 
 backend/
   punishers_ger/       Django-Settings, URLs, .env-Loading
@@ -272,29 +272,45 @@ Standardmäßig läuft der Vite-Dev-Server auf Port `5173`. `.env.development` i
 
 ## Produktion mit Docker
 
-Backend, Frontend, Datenbank, automatische HTTPS-Zertifikate und die News-Übersetzung laufen **komplett als Docker-Container** (`docker-compose.yml`, Repo-Root). Auf dem Zielserver muss dafür lediglich `.env` befüllt und `docker compose up -d` ausgeführt werden – sonst nichts.
+Backend, Frontend, Datenbank und die News-Übersetzung laufen **komplett als Docker-Container** (`docker-compose.yml`, Repo-Root). HTTPS/Routing selbst übernimmt **kein eigener Container** dieses Repos, sondern der Reverse-Proxy, der auf dem Zielserver bereits Port 80/443 besitzt – dieses Setup ist so gebaut, dass es sich als zweiter Tenant in eine bestehende nginx-Instanz einfügt (z. B. denselben VPS, auf dem schon andere Projekte laufen), statt einen eigenen Caddy mitzubringen und mit dem bestehenden Proxy um die Ports zu konkurrieren.
 
-```bash
-git clone <repo-url> && cd PunishersGer
-cp .env.example .env    # DOMAIN, POSTGRES_PASSWORD, DJANGO_SECRET_KEY, ... ausfüllen
-docker compose up -d
-```
-
-Die fünf Services:
+Die vier Services:
 
 | Service | Zweck |
 |---|---|
-| `db` | Postgres 16 (Volume-persistiert) |
+| `db` | Postgres 16 (Volume-persistiert), nur intern erreichbar |
 | `backend` | Django/FastAPI, migriert die DB automatisch beim Start (`backend/docker-entrypoint.sh`), optional automatischer erster Superuser (siehe `.env.example`) |
 | `libretranslate` | Selbst gehostete, kostenlose Übersetzungs-Engine für News-Artikel (nur intern erreichbar, kein eigener Port nach außen) |
 | `frontend` | React-Router-SSR-Server (`react-router-serve`) |
-| `caddy` | Reverse-Proxy + **automatische** Let's-Encrypt-Zertifikate (`DOMAIN=localhost` nutzt stattdessen automatisch ein selbstsigniertes Zertifikat für lokales Testen) |
 
-`Caddyfile` leitet alles unter `/api/*` an `backend` weiter (Prefix wird dabei entfernt, siehe `handle_path` – daher brauchen die FastAPI-Routen selbst keine Anpassung), alles andere an `frontend`. `VITE_API_BASE_URL=/api` (relativ, `frontend/.env.production`) sorgt dafür, dass **dasselbe gebaute Frontend-Image auf jeder Domain funktioniert**, ohne Neubau.
+`backend` und `frontend` hängen zusätzlich am externen Docker-Netzwerk `${SHARED_NETWORK_NAME:-goalkeeper_prod_network}` (siehe `networks.shared` in `docker-compose.yml`) – darüber erreicht sie der bereits laufende Reverse-Proxy des Zielservers per Servicename. `db` und `libretranslate` bleiben bewusst nur im internen Compose-Netzwerk, der Proxy muss sie nie direkt ansprechen.
 
 **Wichtige Einschränkung:** `backend` darf nur mit **genau einer Replica** laufen (siehe `deploy.replicas: 1` in `docker-compose.yml`) – die beiden In-Prozess-Scheduler (FACEIT-Sync, Social-Stats-Sync, siehe `faceit_integration/scheduler.py` / `social_stats/scheduler.py`) sind nicht dafür ausgelegt, mehrfach parallel zu laufen.
 
-Ohne Docker lokal weiterentwickeln funktioniert weiterhin wie gewohnt (SQLite, kein LibreTranslate, kein Caddy) – siehe "Backend"/"Frontend" oben.
+### Deployment-Runbook (bestehender nginx-Server, z. B. mit anderen Projekten auf demselben VPS)
+
+Die Schritte 2–4 verändern die Config und das Zertifikats-Verzeichnis eines *anderen, bereits live laufenden* Projekts – das kann dieses Repo nicht automatisch anfassen, deshalb sind sie hier als manuelles Runbook dokumentiert statt als Skript:
+
+1. **DNS**: A-Record der Domain (z. B. `punishersgermany.de` + `www.`) auf die Server-IP zeigen lassen.
+2. Im Reverse-Proxy-Projekt eine neue `conf.d`-Datei für die Domain anlegen, **zunächst nur mit dem Port-80-Server-Block** (ACME-Challenge-Location + Redirect auf HTTPS – siehe ein bestehendes Beispiel wie `timer.conf` als Vorlage), dann den Proxy neu laden (z. B. `docker compose restart nginx` oder `nginx -s reload` im Container).
+3. Erstzertifikat ziehen, mit denselben Host-Pfaden, die der bestehende Certbot-Renewer-Container schon nutzt (per `docker inspect <renewer-container> --format '{{json .Mounts}}'` prüfen):
+   ```bash
+   docker run --rm \
+     -v <host-pfad-certs>:/etc/letsencrypt \
+     -v <host-pfad-certbot-www>:/var/www/certbot \
+     certbot/certbot certonly --webroot -w /var/www/certbot \
+     -d <domain> -d www.<domain> \
+     --email <email> --agree-tos --no-eff-email
+   ```
+4. Jetzt den Port-443-Block der `conf.d`-Datei ergänzen (`ssl_certificate`/`ssl_certificate_key` zeigen auf `.../live/<domain>/{fullchain,privkey}.pem`) und den Proxy erneut neu laden. Der bestehende Certbot-Renewer erneuert das neue Zertifikat ab jetzt automatisch mit, ohne weiteres Zutun.
+5. Erst jetzt der eigentliche Ein-Kommando-Teil – auf diesem Server, im Checkout dieses Repos:
+   ```bash
+   git clone <repo-url> && cd PunishersGer
+   cp .env.example .env    # DOMAIN, SHARED_NETWORK_NAME, POSTGRES_PASSWORD, DJANGO_SECRET_KEY, ... ausfüllen
+   docker compose up -d
+   ```
+
+Ohne Docker lokal weiterentwickeln funktioniert weiterhin wie gewohnt (SQLite, kein LibreTranslate) – siehe "Backend"/"Frontend" oben.
 
 ```bash
 npm run build   # innerhalb frontend/, entspricht dem Docker-Build-Schritt
@@ -339,7 +355,7 @@ npm run start
 | `VITE_API_BASE_URL` | Backend-URL | `http://localhost:8000` (dev) / `/api` (Produktion, siehe `.env.production` – relativ, damit dasselbe Docker-Image auf jeder Domain läuft) |
 | `VITE_USE_SAMPLE_ASSETS` | Placeholder- vs. Produktionsbilder | `true` |
 
-**Root-`.env`** (nur für den Docker-Compose-Produktivbetrieb, siehe `.env.example`): `DOMAIN`, `ACME_EMAIL`, `POSTGRES_DB`/`POSTGRES_USER`/`POSTGRES_PASSWORD`, `DJANGO_SECRET_KEY`, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, optionale `DJANGO_SUPERUSER_*` für den automatischen ersten Admin-Account, plus dieselben optionalen Integrations-Keys wie oben (werden 1:1 in den `backend`-Container durchgereicht, siehe `docker-compose.yml`).
+**Root-`.env`** (nur für den Docker-Compose-Produktivbetrieb, siehe `.env.example`): `DOMAIN`, `SHARED_NETWORK_NAME` (Name des externen Docker-Netzwerks des bestehenden Reverse-Proxys, siehe "Produktion mit Docker"), `POSTGRES_DB`/`POSTGRES_USER`/`POSTGRES_PASSWORD`, `DJANGO_SECRET_KEY`, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, optionale `DJANGO_SUPERUSER_*` für den automatischen ersten Admin-Account, plus dieselben optionalen Integrations-Keys wie oben (werden 1:1 in den `backend`-Container durchgereicht, siehe `docker-compose.yml`).
 
 ## API-Referenz (Auszug)
 
