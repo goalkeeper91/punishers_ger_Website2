@@ -36,6 +36,16 @@ const MANUAL_PLATFORMS: { key: string; label: string }[] = [
 
 type UserProfile = AuthUser;
 
+// Self-service Player profile (ingame_name + faceit_player_id) - separate
+// from AuthUser/CustomUser since it lives on teams.Player, independent of
+// team membership. null means the user hasn't created one yet (GET
+// /players/me/ returns null rather than 404 in that case).
+interface PlayerProfile {
+  id: number;
+  ingame_name: string;
+  faceit_player_id: string | null;
+}
+
 // --- CLIENT LOADER FUNCTION ---
 // Runs in the browser (not on the server), since the session lives in
 // localStorage (see app/lib/auth.ts), which the server can't read.
@@ -57,13 +67,16 @@ export const clientLoader: ClientLoaderFunction = async () => {
     }
     const user: UserProfile = await userResponse.json();
     const socialChannels = await fetchMySocialChannels().catch(() => [] as SocialChannel[]);
-    return { user, socialChannels };
+    const player: PlayerProfile | null = await authFetch("/players/me/")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    return { user, socialChannels, player };
   } catch (error) {
     if (error instanceof Response) {
       throw error; // Re-throw redirect responses
     }
     console.error("Loader: Failed to fetch user profile:", error);
-    return { user: null, error: "Failed to load user profile.", socialChannels: [] as SocialChannel[] };
+    return { user: null, error: "Failed to load user profile.", socialChannels: [] as SocialChannel[], player: null };
   }
 };
 
@@ -118,6 +131,27 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       }
       return { success: t("action_messages.profile_updated") };
 
+    } else if (formType === "playerProfileUpdate") {
+      const ingame_name = String(formData.get("ingame_name") || "");
+      const faceit_player_id = formData.get("faceit_player_id");
+      const payload = {
+        ingame_name,
+        faceit_player_id: faceit_player_id === "" ? null : faceit_player_id,
+      };
+      const hasExistingPlayer = formData.get("_hasExistingPlayer") === "true";
+
+      const response = await authFetch(`/players/me/`, {
+        method: hasExistingPlayer ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: t("action_messages.faceit_updated") };
+
     } else if (formType === "profilePictureUpload") {
       const file = formData.get("profile_picture");
       if (!file || !(file instanceof File)) {
@@ -162,13 +196,13 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
 
 
 export default function ProfilePage() {
-  const loaderData = useLoaderData() as { user: UserProfile | null; error?: string; socialChannels: SocialChannel[] };
+  const loaderData = useLoaderData() as { user: UserProfile | null; error?: string; socialChannels: SocialChannel[]; player: PlayerProfile | null };
   const actionData = useActionData() as { error?: string; success?: string } | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
   const { t } = useTranslation("profile");
 
-  const { user, error: loaderError, socialChannels } = loaderData;
+  const { user, error: loaderError, socialChannels, player } = loaderData;
   const twitchChannel = socialChannels.find((c) => c.platform === "twitch") ?? null;
   const [profilePicturePreview, setProfilePicturePreview] = useState<string | null>(user?.profile_picture_url || null);
   const [searchParams] = useSearchParams();
@@ -453,6 +487,48 @@ export default function ProfilePage() {
                 disabled={isSubmitting}
               >
                 {isSubmitting ? t("details.saving") : t("details.save")}
+              </button>
+            </Form>
+          </div>
+
+          {/* FACEIT-Profil - unabhängig von Team-Mitgliedschaft, siehe
+              GET/POST/PUT /players/me/ (fastapi_app/main.py) */}
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
+            <h2 className="text-3xl font-bold text-white mb-2">{t("faceit.heading")}</h2>
+            <p className="text-gray-400 text-sm mb-6">{t("faceit.description")}</p>
+            <Form method="post" className="space-y-6">
+              <input type="hidden" name="_formType" value="playerProfileUpdate" />
+              <input type="hidden" name="_hasExistingPlayer" value={player ? "true" : "false"} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300">{t("faceit.ingame_name_label")}</label>
+                  <input
+                    type="text"
+                    id="ingame_name"
+                    name="ingame_name"
+                    required
+                    defaultValue={player?.ingame_name || ""}
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="faceit_player_id" className="block text-sm font-medium text-gray-300">{t("faceit.faceit_id_label")}</label>
+                  <input
+                    type="text"
+                    id="faceit_player_id"
+                    name="faceit_player_id"
+                    defaultValue={player?.faceit_player_id || ""}
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">{t("faceit.faceit_id_hint")}</p>
+                </div>
+              </div>
+              <button
+                type="submit"
+                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? t("faceit.saving") : t("faceit.save")}
               </button>
             </Form>
           </div>

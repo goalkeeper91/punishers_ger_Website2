@@ -68,6 +68,17 @@ class FaceitClient:
         """GET /players/{player_id}/stats/{game_id} - lifetime stats summary."""
         return self._get(f"/players/{player_id}/stats/{game_id}")
 
+    def get_player_history(
+        self, player_id: str, game_id: str, offset: int = 0, limit: int = 20
+    ) -> dict[str, Any]:
+        """GET /players/{player_id}/history - this player's own match
+        history for a game, independent of any team/organizer/championship.
+        Used to sync solo matches for players with no team (see
+        sync.py sync_player_solo_matches) - team players' matches are
+        already covered by the league/championship pipeline below."""
+        params = {"game": game_id, "offset": offset, "limit": limit}
+        return self._get(f"/players/{player_id}/history", params=params)
+
     # --- Organizers / championships / matches ---
 
     def get_organizer_championships(

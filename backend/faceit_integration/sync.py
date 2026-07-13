@@ -21,7 +21,7 @@ from leagues.models import League
 from teams.models import Player, TeamLeagueEntry
 
 from .client import FaceitClient, FaceitAPIError
-from .models import FaceitSyncRun, PlayerFaceitStats, TeamFaceitMatch, PlayerMatchStats
+from .models import FaceitSyncRun, PlayerFaceitStats, TeamFaceitMatch, PlayerFaceitMatch, PlayerMatchStats
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,19 @@ def _extract_our_faction_key(match: dict, faceit_team_id: str) -> Optional[str]:
         team_id = faction_data.get("team_id") or faction_data.get("faction_id")
         if team_id == faceit_team_id:
             return faction_key
+    return None
+
+
+def _extract_player_faction_key(match: dict, faceit_player_id: str) -> Optional[str]:
+    """Find which of the match's two factions (faction1/faction2) a given
+    player was on, by looking for their faceit_player_id in each faction's
+    roster. Used for solo/teamless history syncing, where - unlike
+    _extract_our_faction_key above - there's no known faceit_team_id to
+    match against, only the player's own ID."""
+    for faction_key, faction_data in (match.get("teams") or {}).items():
+        for roster_player in faction_data.get("players") or []:
+            if roster_player.get("player_id") == faceit_player_id:
+                return faction_key
     return None
 
 
@@ -285,6 +298,52 @@ def _round_map_name(round_data: dict) -> Optional[str]:
     return (round_data.get("round_stats") or {}).get("Map")
 
 
+def _player_match_stats_fields(stats_response: dict, faceit_player_id: str) -> Optional[tuple[dict, Optional[str]]]:
+    """Finds one player's stats within a /matches/{id}/stats response and
+    returns (field values for PlayerMatchStats, map name from that match),
+    or None if the player isn't in this match's stats payload at all.
+    Shared by both the team-roster sync (sync_match_player_stats) and the
+    solo-history sync (sync_player_solo_matches) - identical parsing either
+    way, only which FK (match vs solo_match) the caller attaches the result
+    to differs. `result`/`match`/`solo_match` are NOT included here - the
+    caller adds those since only it knows which match/side the row belongs
+    to."""
+    found = _find_player_stats_in_match(stats_response, faceit_player_id)
+    if not found:
+        return None
+    round_data, player_data = found["round"], found["player"]
+    map_name = _round_map_name(round_data)
+    p_stats = player_data.get("player_stats") or {}
+    fields = dict(
+        kills=_safe_int(p_stats.get("Kills")),
+        deaths=_safe_int(p_stats.get("Deaths")),
+        assists=_safe_int(p_stats.get("Assists")),
+        kd_ratio=_safe_float(p_stats.get("K/D Ratio")),
+        kr_ratio=_safe_float(p_stats.get("K/R Ratio")),
+        headshots=_safe_int(p_stats.get("Headshots")),
+        headshots_percent=_safe_float(p_stats.get("Headshots %")),
+        mvps=_safe_int(p_stats.get("MVPs")),
+        triple_kills=_safe_int(p_stats.get("Triple Kills")),
+        quadro_kills=_safe_int(p_stats.get("Quadro Kills")),
+        penta_kills=_safe_int(p_stats.get("Penta Kills")),
+        utility_damage=_safe_float(p_stats.get("Utility Damage")),
+        utility_successes=_safe_int(p_stats.get("Utility Successes")),
+        utility_count=_safe_int(p_stats.get("Utility Count")),
+        flash_count=_safe_int(p_stats.get("Flash Count")),
+        flash_successes=_safe_int(p_stats.get("Flash Successes")),
+        enemies_flashed=_safe_int(p_stats.get("Enemies Flashed")),
+        entry_count=_safe_int(p_stats.get("Entry Count")),
+        entry_wins=_safe_int(p_stats.get("Entry Wins")),
+        clutch_1v1_count=_safe_int(p_stats.get("1v1Count")),
+        clutch_1v1_wins=_safe_int(p_stats.get("1v1Wins")),
+        clutch_1v2_count=_safe_int(p_stats.get("1v2Count")),
+        clutch_1v2_wins=_safe_int(p_stats.get("1v2Wins")),
+        raw_data=player_data,
+        last_synced_at=dj_timezone.now(),
+    )
+    return fields, map_name
+
+
 def sync_match_player_stats(match: TeamFaceitMatch, client: FaceitClient) -> int:
     """Fetch detailed per-player stats for one finished match and store a
     PlayerMatchStats row for every one of our own roster players who played
@@ -307,43 +366,15 @@ def sync_match_player_stats(match: TeamFaceitMatch, client: FaceitClient) -> int
     written = 0
     map_name_from_stats = None
     for player in our_players:
-        found = _find_player_stats_in_match(stats_response, player.faceit_player_id)
+        found = _player_match_stats_fields(stats_response, player.faceit_player_id)
         if not found:
             continue
-        round_data, player_data = found["round"], found["player"]
-        map_name_from_stats = map_name_from_stats or _round_map_name(round_data)
-        p_stats = player_data.get("player_stats") or {}
+        fields, map_name = found
+        map_name_from_stats = map_name_from_stats or map_name
 
         PlayerMatchStats.objects.update_or_create(
             player=player, match=match,
-            defaults=dict(
-                kills=_safe_int(p_stats.get("Kills")),
-                deaths=_safe_int(p_stats.get("Deaths")),
-                assists=_safe_int(p_stats.get("Assists")),
-                kd_ratio=_safe_float(p_stats.get("K/D Ratio")),
-                kr_ratio=_safe_float(p_stats.get("K/R Ratio")),
-                headshots=_safe_int(p_stats.get("Headshots")),
-                headshots_percent=_safe_float(p_stats.get("Headshots %")),
-                mvps=_safe_int(p_stats.get("MVPs")),
-                triple_kills=_safe_int(p_stats.get("Triple Kills")),
-                quadro_kills=_safe_int(p_stats.get("Quadro Kills")),
-                penta_kills=_safe_int(p_stats.get("Penta Kills")),
-                utility_damage=_safe_float(p_stats.get("Utility Damage")),
-                utility_successes=_safe_int(p_stats.get("Utility Successes")),
-                utility_count=_safe_int(p_stats.get("Utility Count")),
-                flash_count=_safe_int(p_stats.get("Flash Count")),
-                flash_successes=_safe_int(p_stats.get("Flash Successes")),
-                enemies_flashed=_safe_int(p_stats.get("Enemies Flashed")),
-                entry_count=_safe_int(p_stats.get("Entry Count")),
-                entry_wins=_safe_int(p_stats.get("Entry Wins")),
-                clutch_1v1_count=_safe_int(p_stats.get("1v1Count")),
-                clutch_1v1_wins=_safe_int(p_stats.get("1v1Wins")),
-                clutch_1v2_count=_safe_int(p_stats.get("1v2Count")),
-                clutch_1v2_wins=_safe_int(p_stats.get("1v2Wins")),
-                result=match.result,
-                raw_data=player_data,
-                last_synced_at=dj_timezone.now(),
-            ),
+            defaults={**fields, "result": match.result},
         )
         written += 1
 
@@ -380,6 +411,124 @@ def sync_all_match_player_stats(client: FaceitClient) -> dict:
 
 
 # =====================================================================
+# Solo match history for teamless players: no team/league/organizer to
+# discover matches through, so this goes straight to the player's own
+# FACEIT history instead. Deliberately only ever run for players with no
+# team (see sync_all_solo_matches) - a team player's league matches are
+# already covered by the pipeline above, and running this for them too
+# would double-count the same real-world match under two different rows.
+# =====================================================================
+
+def sync_player_solo_matches(player: Player, client: FaceitClient, game_id: Optional[str] = None) -> dict:
+    """Mirrors sync_league_matches + sync_match_player_stats, but discovers
+    matches via the player's own history instead of championship/league
+    lookups, and has no 'our team' concept - which faction the player was
+    on is derived directly from their own faceit_player_id appearing in a
+    match's roster (see _extract_player_faction_key). Never raises."""
+    game_id = game_id or settings.FACEIT_DEFAULT_GAME_ID
+
+    try:
+        history = client.get_player_history(player.faceit_player_id, game_id, limit=50)
+    except FaceitAPIError as exc:
+        logger.warning(
+            "Solo-Match-Sync fehlgeschlagen für Spieler '%s' (faceit_player_id=%s): %s",
+            player.ingame_name, player.faceit_player_id, exc,
+        )
+        return {"solo_matches_synced": 0, "solo_match_stats_synced": 0, "solo_match_stats_failed": 0}
+
+    items = history.get("items", [])
+    matches_synced = 0
+    finished_matches: list[PlayerFaceitMatch] = []
+
+    for item in items:
+        match_id = item.get("match_id")
+        if not match_id:
+            continue
+
+        our_key = _extract_player_faction_key(item, player.faceit_player_id)
+        results = item.get("results") or {}
+        score = results.get("score") or {}
+        winner = results.get("winner")
+        opponent_key = ("faction2" if our_key == "faction1" else "faction1") if our_key else None
+        opponent_data = (item.get("teams") or {}).get(opponent_key, {}) if opponent_key else {}
+
+        solo_match, _ = PlayerFaceitMatch.objects.update_or_create(
+            player=player, faceit_match_id=match_id,
+            defaults=dict(
+                competition_name=item.get("competition_name"),
+                status=_map_match_status(item.get("status")),
+                scheduled_at=_parse_timestamp(item.get("started_at") or item.get("configured_at")),
+                finished_at=_parse_timestamp(item.get("finished_at")),
+                opponent_name=opponent_data.get("nickname") or opponent_data.get("name"),
+                player_score=_safe_int(score.get(our_key)) if our_key else None,
+                opponent_score=_safe_int(score.get(opponent_key)) if opponent_key else None,
+                result=("win" if winner == our_key else "loss") if (winner and our_key) else None,
+                raw_data=item,
+                last_synced_at=dj_timezone.now(),
+            ),
+        )
+        matches_synced += 1
+        if solo_match.status == 'finished':
+            finished_matches.append(solo_match)
+
+    # Detailed per-match stats, capped per run like the team-based path -
+    # only for finished matches that don't have a PlayerMatchStats row yet.
+    already_have_stats = set(
+        PlayerMatchStats.objects.filter(solo_match__in=finished_matches).values_list('solo_match_id', flat=True)
+    )
+    pending = [m for m in finished_matches if m.id not in already_have_stats][:MAX_MATCH_STATS_PER_RUN]
+
+    stats_synced = stats_failed = 0
+    for solo_match in pending:
+        try:
+            stats_response = client.get_match_stats(solo_match.faceit_match_id)
+        except FaceitAPIError as exc:
+            logger.warning(
+                "Solo-Match-Stats-Sync fehlgeschlagen für Match %s: %s", solo_match.faceit_match_id, exc,
+            )
+            stats_failed += 1
+            continue
+
+        found = _player_match_stats_fields(stats_response, player.faceit_player_id)
+        if not found:
+            continue
+        fields, map_name = found
+        if map_name and solo_match.map_name != map_name:
+            solo_match.map_name = map_name
+            solo_match.save(update_fields=["map_name"])
+
+        PlayerMatchStats.objects.update_or_create(
+            player=player, solo_match=solo_match,
+            defaults={**fields, "result": solo_match.result},
+        )
+        stats_synced += 1
+
+    return {
+        "solo_matches_synced": matches_synced,
+        "solo_match_stats_synced": stats_synced,
+        "solo_match_stats_failed": stats_failed,
+    }
+
+
+def sync_all_solo_matches(client: FaceitClient, game_id: Optional[str] = None) -> dict:
+    players = (
+        Player.objects.filter(team__isnull=True)
+        .exclude(faceit_player_id__isnull=True).exclude(faceit_player_id="")
+    )
+    matches_total = stats_synced_total = stats_failed_total = 0
+    for player in players:
+        result = sync_player_solo_matches(player, client, game_id=game_id)
+        matches_total += result["solo_matches_synced"]
+        stats_synced_total += result["solo_match_stats_synced"]
+        stats_failed_total += result["solo_match_stats_failed"]
+    return {
+        "solo_matches_synced": matches_total,
+        "solo_match_stats_synced": stats_synced_total,
+        "solo_match_stats_failed": stats_failed_total,
+    }
+
+
+# =====================================================================
 # Top-level entry point
 # =====================================================================
 
@@ -402,6 +551,8 @@ def sync_all(trigger: str = "manual") -> dict:
     match_summary = sync_all_team_matches(client)
     # Needs TeamFaceitMatch rows to exist first, hence run after match sync.
     match_stats_summary = sync_all_match_player_stats(client)
+    # Independent of the team-match pipeline above (teamless players only).
+    solo_summary = sync_all_solo_matches(client)
 
     run.players_synced = player_summary["players_synced"]
     run.players_failed = player_summary["players_failed"]
@@ -409,7 +560,10 @@ def sync_all(trigger: str = "manual") -> dict:
     run.league_entries_failed = match_summary["league_entries_failed"]
     run.player_match_stats_synced = match_stats_summary["player_match_stats_synced"]
     run.player_match_stats_failed = match_stats_summary["player_match_stats_failed"]
+    run.solo_matches_synced = solo_summary["solo_matches_synced"]
+    run.solo_match_stats_synced = solo_summary["solo_match_stats_synced"]
+    run.solo_match_stats_failed = solo_summary["solo_match_stats_failed"]
     run.finished_at = dj_timezone.now()
     run.save()
 
-    return {**player_summary, **match_summary, **match_stats_summary, "run_id": run.id}
+    return {**player_summary, **match_summary, **match_stats_summary, **solo_summary, "run_id": run.id}

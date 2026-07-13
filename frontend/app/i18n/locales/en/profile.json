@@ -36,6 +36,15 @@
     "saving": "Saving...",
     "save": "Save Profile"
   },
+  "faceit": {
+    "heading": "FACEIT Profile",
+    "description": "Link your FACEIT ID to see your lifetime and per-match stats on the stats page - regardless of whether you're on a team.",
+    "ingame_name_label": "Ingame Name",
+    "faceit_id_label": "FACEIT Player ID",
+    "faceit_id_hint": "Found on your FACEIT profile under \"Player ID\", or in your profile URL.",
+    "saving": "Saving...",
+    "save": "Save FACEIT Profile"
+  },
   "social": {
     "heading": "Social Media Connections",
     "description": "Connect your Twitch channel so your follower count is automatically synced for sponsor reporting, instead of an admin maintaining it manually.",
@@ -55,6 +64,7 @@
   },
   "action_messages": {
     "profile_updated": "Profile updated successfully!",
+    "faceit_updated": "FACEIT profile saved successfully!",
     "no_file_selected": "No file selected.",
     "picture_uploaded": "Profile picture uploaded successfully!",
     "twitch_disconnected": "Twitch connection disconnected.",

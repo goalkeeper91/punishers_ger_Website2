@@ -222,6 +222,7 @@ class PlayerSchema(BaseModel):
     description: Optional[str] = None
     image_url: Optional[str] = None
     team_id: Optional[int] = None
+    faceit_player_id: Optional[str] = None
     user: Optional[CustomUserSchema] = None
     created_at: str
     updated_at: str
@@ -574,6 +575,18 @@ class PlayerUpdate(BaseModel):
     description: Optional[str] = None
     team_id: Optional[int] = None
     user_id: Optional[int] = None
+    faceit_player_id: Optional[str] = None
+
+# Self-service versions of the two above, deliberately without team_id -
+# team assignment stays exclusively an admin/Team-Manager action via the
+# /admin/players/ endpoints above. See POST/PUT /players/me/.
+class PlayerSelfCreate(BaseModel):
+    ingame_name: str
+    faceit_player_id: Optional[str] = None
+
+class PlayerSelfUpdate(BaseModel):
+    ingame_name: Optional[str] = None
+    faceit_player_id: Optional[str] = None
 
 class ClickStat(BaseModel):
     id: int
@@ -1013,6 +1026,67 @@ async def update_user_profile(
         await sync_to_async(user.save)(update_fields=update_fields)
 
     return await build_user_schema(user)
+
+# Self-service Player profile (ingame_name + faceit_player_id), independent
+# of team membership - team assignment stays exclusively an admin/
+# Team-Manager action via /admin/players/. Lets a teamless player link their
+# own FACEIT ID so faceit_integration.sync can pick them up (see
+# sync_all_players/sync_all_solo_matches, both already team-agnostic).
+@app.get("/players/me/", response_model=Optional[PlayerSchema])
+async def get_my_player(current_user: CustomUser = Depends(get_current_user)):
+    # select_related is required, not just an optimization: build_player_schema
+    # accesses player.user/.team synchronously (not wrapped in sync_to_async),
+    # which crashes with SynchronousOnlyOperation from this async endpoint if
+    # they weren't already prefetched (matches the pattern every other Player
+    # read path - get_player_admin, update_player - already follows).
+    player = await sync_to_async(Player.objects.select_related('user', 'team').filter(user=current_user).first)()
+    return await build_player_schema(player) if player else None
+
+@app.post("/players/me/", response_model=PlayerSchema, status_code=status.HTTP_201_CREATED)
+async def create_my_player(payload: PlayerSelfCreate, current_user: CustomUser = Depends(get_current_user)):
+    if await sync_to_async(Player.objects.filter(user=current_user).exists)():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Du hast bereits ein Spielerprofil.")
+    if payload.faceit_player_id and await sync_to_async(
+        Player.objects.filter(faceit_player_id=payload.faceit_player_id).exists
+    )():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Diese FACEIT-ID ist bereits mit einem anderen Profil verknüpft.",
+        )
+
+    player = await sync_to_async(Player.objects.create)(
+        team=None,
+        user=current_user,
+        ingame_name=payload.ingame_name,
+        faceit_player_id=payload.faceit_player_id or None,
+    )
+    await sync_to_async(_log_action)(current_user, "create", "Player", player.id, player.ingame_name, {"self_service": True})
+    return await build_player_schema(player)
+
+@app.put("/players/me/", response_model=PlayerSchema)
+async def update_my_player(payload: PlayerSelfUpdate, current_user: CustomUser = Depends(get_current_user)):
+    # select_related required - see get_my_player above for why.
+    player = await sync_to_async(Player.objects.select_related('user', 'team').filter(user=current_user).first)()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kein Spielerprofil vorhanden.")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "faceit_player_id" in data and data["faceit_player_id"]:
+        already_linked = await sync_to_async(
+            Player.objects.exclude(id=player.id).filter(faceit_player_id=data["faceit_player_id"]).exists
+        )()
+        if already_linked:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Diese FACEIT-ID ist bereits mit einem anderen Profil verknüpft.",
+            )
+
+    for field, value in data.items():
+        setattr(player, field, value or None if field == "faceit_player_id" else value)
+
+    await sync_to_async(player.save)(update_fields=list(data.keys()))
+    await sync_to_async(_log_action)(current_user, "update", "Player", player.id, player.ingame_name, {"self_service": True, "fields": list(data.keys())})
+    return await build_player_schema(player)
 
 @app.post("/users/me/profile_picture/", response_model=CustomUserSchema)
 async def upload_profile_picture(
@@ -1792,6 +1866,7 @@ async def build_player_schema(player: Player) -> PlayerSchema:
         description=player.description,
         image_url=build_media_url(player.image),
         team_id=team_id,
+        faceit_player_id=player.faceit_player_id,
         user=player_user,
         created_at=player.created_at.isoformat(),
         updated_at=player.updated_at.isoformat(),
@@ -2666,7 +2741,11 @@ def _build_player_advanced_stats(match_stats: list[PlayerMatchStats]) -> Optiona
     )
 
 def _build_player_match_stats_schema(m: PlayerMatchStats) -> PlayerMatchStatsSchema:
-    match = m.match
+    # Exactly one of match (roster player's league match)/solo_match
+    # (teamless player's own FACEIT history) is ever set - see the
+    # CheckConstraint on PlayerMatchStats. Both expose the same
+    # faceit_match_id/map_name/opponent_name/finished_at shape.
+    match = m.match or m.solo_match
     return PlayerMatchStatsSchema(
         faceit_match_id=match.faceit_match_id,
         map_name=match.map_name,
@@ -2688,9 +2767,12 @@ def _build_player_match_stats_schema(m: PlayerMatchStats) -> PlayerMatchStatsSch
 
 def _build_player_stats_schema(player: Player) -> PlayerStatsSchema:
     stats = getattr(player, 'faceit_stats', None)
-    match_stats = list(
-        PlayerMatchStats.objects.filter(player=player)
-        .select_related('match').order_by('-match__finished_at')
+    # order_by('-match__finished_at') would break/mis-sort solo_match rows
+    # (match is null there) - sort in Python off whichever side is set instead.
+    match_stats = sorted(
+        PlayerMatchStats.objects.filter(player=player).select_related('match', 'solo_match'),
+        key=lambda m: (m.match or m.solo_match).finished_at or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
     )
     return PlayerStatsSchema(
         player_id=player.id,
