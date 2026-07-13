@@ -20,7 +20,8 @@ from asgiref.sync import sync_to_async
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'punishers_ger.settings')
 django.setup()
 
-from news.models import NewsArticle
+from news.models import NewsArticle, NewsArticleTranslation
+from news.translation import sync_translations_for_article, SUPPORTED_LANGUAGES as NEWS_SUPPORTED_LANGUAGES
 from teams.models import Team, Player
 from users.models import CustomUser, ROLE_TEAM_MANAGER, ROLE_AUTHOR
 from users.emails import send_account_activated_email, send_password_reset_email
@@ -177,6 +178,11 @@ class NewsArticleSchema(BaseModel):
     published_date: str
     updated_date: str
     status: str
+    original_language: str = "de"
+    # True when title/content above are a machine translation (the reader
+    # requested a different ?lang= than the article was written in) rather
+    # than the author's own words - shown as a small disclaimer badge.
+    is_machine_translated: bool = False
 
     class Config:
         from_attributes = True
@@ -1018,33 +1024,47 @@ async def get_all_users_for_admin(
     users = await sync_to_async(list)(CustomUser.objects.all().order_by('username'))
     return [await build_user_schema(user) for user in users]
 
-async def build_news_schema(article: NewsArticle) -> NewsArticleSchema:
+async def build_news_schema(article: NewsArticle, lang: Optional[str] = None) -> NewsArticleSchema:
     author_name = await sync_to_async(lambda: article.author.username if article.author else None)()
+
+    title, content, is_machine_translated = article.title, article.content, False
+    if lang and lang in NEWS_SUPPORTED_LANGUAGES and lang != article.original_language:
+        translation = await sync_to_async(
+            lambda: NewsArticleTranslation.objects.filter(article=article, language=lang).first()
+        )()
+        # Falls back to the original if no translation exists yet (e.g. the
+        # translation service was down when the article was saved) - the
+        # reader always sees something rather than a blank article.
+        if translation:
+            title, content, is_machine_translated = translation.title, translation.content, translation.is_machine_translated
+
     return NewsArticleSchema(
         id=article.id,
-        title=article.title,
+        title=title,
         slug=article.slug,
-        content=article.content,
+        content=content,
         author_name=author_name,
         image_url=build_media_url(article.image),
         published_date=article.published_date.isoformat(),
         updated_date=article.updated_date.isoformat(),
         status=article.status,
+        original_language=article.original_language,
+        is_machine_translated=is_machine_translated,
     )
 
 @app.get("/news/", response_model=List[NewsArticleSchema])
-async def get_all_news_articles():
+async def get_all_news_articles(lang: Optional[str] = None):
     articles = await sync_to_async(list)(NewsArticle.objects.filter(status='published').order_by('-published_date'))
-    return [await build_news_schema(article) for article in articles]
+    return [await build_news_schema(article, lang) for article in articles]
 
 @app.get("/news/{slug}/", response_model=NewsArticleSchema)
-async def get_news_article_by_slug(slug: str):
+async def get_news_article_by_slug(slug: str, lang: Optional[str] = None):
     try:
         article = await sync_to_async(NewsArticle.objects.get)(slug=slug, status='published')
     except NewsArticle.DoesNotExist:
         raise HTTPException(status_code=404, detail="News article not found or not published")
 
-    return await build_news_schema(article)
+    return await build_news_schema(article, lang)
 
 # --- Admin news management (list/create/edit/delete, incl. drafts) ---
 
@@ -1081,6 +1101,7 @@ async def create_news_article(
         author=current_user,
     )
     await sync_to_async(_log_action)(current_user, "create", "NewsArticle", article.id, article.title)
+    await sync_to_async(sync_translations_for_article)(article)
     return await build_news_schema(article)
 
 @app.put("/admin/news/{article_id}/", response_model=NewsArticleSchema)
@@ -1114,6 +1135,10 @@ async def update_news_article(
     if update_fields:
         await sync_to_async(article.save)(update_fields=update_fields)
         await sync_to_async(_log_action)(current_user, "update", "NewsArticle", article.id, article.title, {"fields": update_fields})
+        # Only worth re-translating if the text that gets translated actually
+        # changed - a status/slug-only edit shouldn't hit LibreTranslate.
+        if "title" in update_fields or "content" in update_fields:
+            await sync_to_async(sync_translations_for_article)(article)
 
     return await build_news_schema(article)
 
@@ -1145,6 +1170,25 @@ async def upload_news_article_image(
     await sync_to_async(article.save)(update_fields=['image'])
     await sync_to_async(_log_action)(current_user, "update", "NewsArticle", article.id, article.title, {"fields": ["image"]})
 
+    return await build_news_schema(article)
+
+@app.post("/admin/news/{article_id}/translate/", response_model=NewsArticleSchema)
+async def retranslate_news_article(
+    article_id: int,
+    current_user: CustomUser = Depends(require_permission("news.manage_news")),
+):
+    """Manually re-run auto-translation - e.g. after the translation service
+    was down when the article was last saved, or after a manual copy-edit
+    that didn't change title/content field-for-field enough to trigger the
+    automatic re-translation in update_news_article(). Mirrors the existing
+    manual-trigger pattern used for FACEIT/social-stats sync."""
+    try:
+        article = await sync_to_async(NewsArticle.objects.get)(id=article_id)
+    except NewsArticle.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="News article not found")
+
+    await sync_to_async(sync_translations_for_article)(article)
+    await sync_to_async(_log_action)(current_user, "translate", "NewsArticle", article.id, article.title)
     return await build_news_schema(article)
 
 # --- Sponsors (public list + click tracking, admin CRUD) ---

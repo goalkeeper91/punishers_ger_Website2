@@ -1,0 +1,28 @@
+{
+  "hero": {
+    "title": "Über Punishers Germany",
+    "description": "Unsere Leidenschaft für Esport, unsere Mission und die Werte, die uns antreiben."
+  },
+  "mission_vision": {
+    "heading": "Unsere Mission & Vision",
+    "mission_title": "Unsere Mission",
+    "mission_text": "Punishers Germany hat es sich zur Aufgabe gemacht, talentierte Esportler zu fördern, eine inklusive und leidenschaftliche Community aufzubauen und den Esport in Deutschland und darüber hinaus voranzutreiben. Wir streben danach, eine Plattform zu bieten, auf der Spieler, Content Creator und Fans gleichermaßen wachsen und ihre Liebe zum Gaming teilen können.",
+    "vision_title": "Unsere Vision",
+    "vision_text": "Wir sehen Punishers Germany als eine führende Esport-Organisation, die nicht nur durch sportliche Erfolge glänzt, sondern auch durch ihre starke Community, ihre innovativen Inhalte und ihre positive Auswirkung auf die Esport-Landschaft. Wir wollen eine Marke sein, die für Exzellenz, Integrität und Zusammenhalt steht."
+  },
+  "story": {
+    "heading": "Unsere Geschichte",
+    "paragraph1": "Punishers Germany wurde [Gründungsjahr] von einer Gruppe leidenschaftlicher Gamer gegründet, die eine gemeinsame Vision teilten: eine Esport-Organisation zu schaffen, die sich auf die Entwicklung von Talenten und den Aufbau einer starken Gemeinschaft konzentriert. Was als kleines Projekt begann, wuchs schnell zu einer Organisation heran, die heute Teams in verschiedenen Titeln und eine wachsende Zahl von Content Creatorn umfasst.",
+    "paragraph2": "Von den ersten Online-Turnieren bis hin zu nationalen Ligen haben wir stets versucht, unsere Spieler bestmöglich zu unterstützen und ihnen die Werkzeuge an die Hand zu geben, die sie für den Erfolg benötigen. Unsere Reise ist noch lange nicht zu Ende, und wir freuen uns auf jedes neue Kapitel, das wir gemeinsam mit unserer Community schreiben werden."
+  },
+  "values": {
+    "heading": "Unsere Werte",
+    "description": "Diese Prinzipien leiten uns in allem, was wir tun.",
+    "excellence_title": "Exzellenz",
+    "excellence_text": "Wir streben in allen Bereichen nach höchster Leistung, sei es im Spiel, in der Content-Erstellung oder in der Organisation.",
+    "community_title": "Gemeinschaft",
+    "community_text": "Wir bauen eine starke, unterstützende und inklusive Community auf, in der sich jeder willkommen fühlt.",
+    "innovation_title": "Innovation",
+    "innovation_text": "Wir sind stets offen für neue Ideen und Wege, um den Esport voranzubringen und unsere Fans zu begeistern."
+  }
+}

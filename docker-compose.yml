@@ -1,0 +1,108 @@
+# Production stack: db + backend + libretranslate + frontend + caddy.
+# On the target server, the only required action is: fill in a root .env
+# (see .env.example) and run `docker compose up -d`.
+#
+# IMPORTANT: `backend` must stay at exactly one replica. It runs two
+# in-process APScheduler jobs (FACEIT sync, social-stats sync) that are not
+# safe to run more than once concurrently - scaling this service would
+# double-fire (or worse) those syncs. See backend/docker-entrypoint.sh.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-punishers}
+      POSTGRES_USER: ${POSTGRES_USER:-punishers}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-punishers}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    restart: unless-stopped
+    # Only the languages this site actually supports - keeps the image's
+    # first-boot model download (and RAM footprint) small.
+    command: ["--load-only", "en,de", "--disable-web-ui"]
+    volumes:
+      - libretranslate_data:/home/libretranslate/.local
+    # Not published to the host - only `backend` talks to it, over the
+    # Compose network at http://libretranslate:5000.
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN:-localhost},backend
+      BACKEND_BASE_URL: https://${DOMAIN:-localhost}/api
+      FRONTEND_BASE_URL: https://${DOMAIN:-localhost}
+      CORS_ORIGINS: https://${DOMAIN:-localhost}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-punishers}
+      POSTGRES_USER: ${POSTGRES_USER:-punishers}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      LIBRETRANSLATE_URL: http://libretranslate:5000
+      FACEIT_API_KEY: ${FACEIT_API_KEY:-}
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
+      # Optional one-time admin bootstrap - see backend/docker-entrypoint.sh.
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
+    volumes:
+      - media_data:/app/media
+      - staticfiles_data:/app/staticfiles
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  postgres_data:
+  libretranslate_data:
+  media_data:
+  staticfiles_data:
+  caddy_data:
+  caddy_config:

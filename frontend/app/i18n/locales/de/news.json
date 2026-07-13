@@ -1,0 +1,20 @@
+{
+  "hero": {
+    "title": "Aktuelles & News",
+    "description": "Bleibe immer auf dem Laufenden über die neuesten Entwicklungen, Erfolge und Ankündigungen von Punishers Germany."
+  },
+  "latest": {
+    "heading": "Neueste Nachrichten",
+    "read_more": "Weiterlesen"
+  },
+  "archive": {
+    "heading": "Nachrichten Archiv",
+    "details": "Details",
+    "older_news": "Ältere Nachrichten"
+  },
+  "detail": {
+    "back_to_news": "Zurück zu News",
+    "not_found": "Artikel nicht gefunden.",
+    "machine_translated": "Automatisch übersetzt"
+  }
+}

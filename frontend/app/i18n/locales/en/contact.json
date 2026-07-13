@@ -1,0 +1,25 @@
+{
+  "hero": {
+    "title": "Contact Us",
+    "description": "We'd love to hear from you! Whether it's questions, suggestions, or partnership inquiries."
+  },
+  "form": {
+    "heading": "Send Us a Message",
+    "name_label": "Name",
+    "name_placeholder": "Your name",
+    "email_label": "Email",
+    "email_placeholder": "your.email@example.com",
+    "subject_label": "Subject",
+    "subject_placeholder": "Subject of your message",
+    "message_label": "Message",
+    "message_placeholder": "Your message to us...",
+    "submit": "Send Message"
+  },
+  "info": {
+    "heading": "More Ways to Reach Us",
+    "email_title": "Email",
+    "email_description": "For general inquiries:",
+    "social_title": "Social Media",
+    "social_description": "Follow us and message us:"
+  }
+}

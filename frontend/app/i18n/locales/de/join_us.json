@@ -1,0 +1,42 @@
+{
+  "hero": {
+    "title": "Werde Teil der Punishers Germany Familie!",
+    "description": "Egal ob du ein aufstrebender Esportler, ein kreativer Content Creator oder einfach nur ein leidenschaftlicher Fan bist – wir suchen dich!"
+  },
+  "opportunities": {
+    "heading": "Deine Möglichkeiten bei uns",
+    "player": {
+      "title": "Als Spieler",
+      "description": "Du bist ein talentierter Esportler, suchst ein professionelles Umfeld und möchtest dein Können auf die nächste Stufe heben? Bewirb dich jetzt für unsere Teams!",
+      "perk1": "Professionelles Coaching",
+      "perk2": "Team-Infrastruktur",
+      "perk3": "Turnierteilnahmen",
+      "perk4": "Community-Support",
+      "cta": "Jetzt bewerben"
+    },
+    "creator": {
+      "title": "Als Content Creator",
+      "description": "Du liebst es, Inhalte zu erstellen, deine Leidenschaft zu teilen und eine Community aufzubauen? Werde Teil unseres Creator-Teams und wachse mit uns!",
+      "perk1": "Support bei Marketing & Reichweite",
+      "perk2": "Zugang zu exklusiven Events",
+      "perk3": "Vernetzung mit anderen Creators",
+      "perk4": "Möglichkeiten zur Monetarisierung",
+      "cta": "Mehr erfahren"
+    },
+    "community": {
+      "title": "Als Community-Mitglied",
+      "description": "Werde Teil unserer wachsenden Discord-Community, triff Gleichgesinnte, tausche dich aus und verpasse keine Neuigkeiten und Events!",
+      "perk1": "Exklusive Discord-Rollen",
+      "perk2": "Teilnahme an Community-Events",
+      "perk3": "Direkter Draht zu Spielern & Creators",
+      "perk4": "Early Access zu News & Merch",
+      "cta": "Discord beitreten"
+    }
+  },
+  "application": {
+    "heading": "Bereit, den nächsten Schritt zu wagen?",
+    "description": "Wir freuen uns darauf, dich kennenzulernen! Nutze unser Bewerbungsformular oder kontaktiere uns direkt.",
+    "form_cta": "Zum Bewerbungsformular",
+    "email_cta": "E-Mail senden"
+  }
+}

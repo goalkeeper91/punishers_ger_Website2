@@ -1,0 +1,25 @@
+{
+  "hero": {
+    "title": "Kontaktiere uns",
+    "description": "Wir freuen uns darauf, von dir zu hören! Egal ob Fragen, Anregungen oder Partnerschaftsanfragen."
+  },
+  "form": {
+    "heading": "Schreib uns eine Nachricht",
+    "name_label": "Name",
+    "name_placeholder": "Dein Name",
+    "email_label": "E-Mail",
+    "email_placeholder": "deine.email@example.com",
+    "subject_label": "Betreff",
+    "subject_placeholder": "Betreff deiner Nachricht",
+    "message_label": "Nachricht",
+    "message_placeholder": "Deine Nachricht an uns...",
+    "submit": "Nachricht senden"
+  },
+  "info": {
+    "heading": "Weitere Kontaktmöglichkeiten",
+    "email_title": "E-Mail",
+    "email_description": "Für allgemeine Anfragen:",
+    "social_title": "Social Media",
+    "social_description": "Folge uns und schreib uns:"
+  }
+}

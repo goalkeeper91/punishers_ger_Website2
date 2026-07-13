@@ -1,0 +1,28 @@
+{
+  "hero": {
+    "title": "About Punishers Germany",
+    "description": "Our passion for esports, our mission, and the values that drive us."
+  },
+  "mission_vision": {
+    "heading": "Our Mission & Vision",
+    "mission_title": "Our Mission",
+    "mission_text": "Punishers Germany has made it its mission to nurture talented esports athletes, build an inclusive and passionate community, and advance esports in Germany and beyond. We strive to provide a platform where players, content creators, and fans alike can grow and share their love of gaming.",
+    "vision_title": "Our Vision",
+    "vision_text": "We see Punishers Germany as a leading esports organization that shines not only through competitive success, but also through its strong community, innovative content, and positive impact on the esports landscape. We want to be a brand that stands for excellence, integrity, and togetherness."
+  },
+  "story": {
+    "heading": "Our Story",
+    "paragraph1": "Punishers Germany was founded in [founding year] by a group of passionate gamers who shared a common vision: to create an esports organization focused on developing talent and building a strong community. What started as a small project quickly grew into an organization that today includes teams across multiple titles and a growing number of content creators.",
+    "paragraph2": "From the first online tournaments to national leagues, we've always strived to support our players as best as we can and give them the tools they need to succeed. Our journey is far from over, and we look forward to every new chapter we'll write together with our community."
+  },
+  "values": {
+    "heading": "Our Values",
+    "description": "These principles guide us in everything we do.",
+    "excellence_title": "Excellence",
+    "excellence_text": "We strive for top performance in every area, whether in-game, in content creation, or in the organization itself.",
+    "community_title": "Community",
+    "community_text": "We build a strong, supportive, and inclusive community where everyone feels welcome.",
+    "innovation_title": "Innovation",
+    "innovation_text": "We're always open to new ideas and ways to advance esports and excite our fans."
+  }
+}

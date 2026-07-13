@@ -1,0 +1,27 @@
+{
+  "hero": {
+    "title": "Unsere Esport Teams",
+    "description": "Hier findest du alle Informationen zu unseren talentierten Spielern und den Spielen, in denen wir antreten."
+  },
+  "filter": {
+    "heading": "Filter nach Spiel",
+    "all_games": "Alle Spiele"
+  },
+  "main_teams": {
+    "heading": "Unsere Main Teams",
+    "description": "Das sind die Aushängeschilder unserer Organisation, die auf höchstem Niveau um Siege kämpfen.",
+    "team_profile": "Team Profil"
+  },
+  "other_teams": {
+    "heading": "Weitere Teams entdecken",
+    "description": "Neben unseren Main Teams haben wir eine Vielzahl weiterer talentierter Squads in verschiedenen Spielen.",
+    "details": "Details",
+    "show_all": "Alle Teams anzeigen"
+  },
+  "detail": {
+    "main_team_badge": "Main Team",
+    "roster_heading": "Roster",
+    "no_players": "Noch keine Spieler im Roster.",
+    "back_to_teams": "Zurück zur Teamübersicht"
+  }
+}

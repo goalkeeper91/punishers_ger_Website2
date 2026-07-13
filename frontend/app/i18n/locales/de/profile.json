@@ -1,0 +1,66 @@
+{
+  "loading": "Profil wird geladen...",
+  "not_found": "Profil nicht gefunden oder nicht angemeldet.",
+  "welcome": "Willkommen, {{username}}!",
+  "sidebar": {
+    "heading": "Mein Profil",
+    "edit_profile": "Profil bearbeiten",
+    "stats_admin": "Statistiken (alle Teams)",
+    "stats_team_manager": "Team-Statistiken",
+    "stats_player": "Meine Statistiken",
+    "management": "Verwaltung"
+  },
+  "messages": {
+    "twitch_connected": "Twitch-Kanal erfolgreich verbunden.",
+    "twitch_error": "Twitch-Verbindung fehlgeschlagen. Bitte erneut versuchen."
+  },
+  "picture": {
+    "heading": "Profilbild",
+    "upload_label": "Neues Profilbild hochladen",
+    "uploading": "Wird hochgeladen...",
+    "save": "Profilbild speichern"
+  },
+  "details": {
+    "heading": "Profildetails bearbeiten",
+    "username_label": "Benutzername",
+    "email_label": "E-Mail",
+    "first_name_label": "Vorname",
+    "last_name_label": "Nachname",
+    "steam_id_label": "Steam ID",
+    "game_profile_link_label": "Game Profil Link",
+    "twitter_link_label": "Twitter Link",
+    "twitch_link_label": "Twitch Link",
+    "youtube_link_label": "YouTube Link",
+    "instagram_link_label": "Instagram Link",
+    "tiktok_link_label": "TikTok Link",
+    "saving": "Wird gespeichert...",
+    "save": "Profil speichern"
+  },
+  "social": {
+    "heading": "Social-Media-Verbindungen",
+    "description": "Verbinde deinen Twitch-Kanal, damit deine Follower-Zahl automatisch für Sponsoren-Reportings synchronisiert wird, statt dass ein Admin sie manuell pflegen muss.",
+    "connected_as": "Verbunden als {{login}}",
+    "not_connected": "Nicht verbunden",
+    "disconnect": "Trennen",
+    "connect": "Twitch verbinden",
+    "redirecting": "Weiterleitung..."
+  },
+  "reach": {
+    "heading": "Meine Reichweite",
+    "description": "Für Twitter/X, Instagram und TikTok gibt es (noch) keine automatische Synchronisation. Trage deine Zahlen selbst ein, oder lade einen Screenshot (z.B. deiner Profil- oder Beitrags-Insights) hoch - die Werte werden lokal ausgelesen und als Vorschlag eingetragen, das Bild selbst wird dabei nirgends gespeichert."
+  },
+  "public": {
+    "not_found": "Benutzerprofil nicht gefunden.",
+    "game_profile_link_label": "Spielerprofil"
+  },
+  "action_messages": {
+    "profile_updated": "Profil erfolgreich aktualisiert!",
+    "no_file_selected": "Keine Datei ausgewählt.",
+    "picture_uploaded": "Profilbild erfolgreich hochgeladen!",
+    "twitch_disconnected": "Twitch-Verbindung getrennt.",
+    "stats_updated": "Statistik aktualisiert.",
+    "unknown_form_type": "Unbekannter Formular-Typ.",
+    "generic_error": "Ein Fehler ist aufgetreten.",
+    "twitch_connect_failed": "Twitch-Verbindung konnte nicht gestartet werden."
+  }
+}

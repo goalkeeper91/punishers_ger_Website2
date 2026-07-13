@@ -1,5 +1,6 @@
 import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
 
@@ -44,11 +45,12 @@ export const loader: LoaderFunction = async ({ params }) => {
 
 export default function ProfilePage() {
   const { user } = useLoaderData() as { user: PublicUserProfile | null };
+  const { t } = useTranslation("profile");
 
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-950 text-gray-100 font-sans flex items-center justify-center">
-        <h1 className="text-4xl font-bold text-white">Benutzerprofil nicht gefunden.</h1>
+        <h1 className="text-4xl font-bold text-white">{t("public.not_found")}</h1>
       </div>
     );
   }
@@ -59,7 +61,7 @@ export default function ProfilePage() {
     { href: user.youtube_link, label: "YouTube" },
     { href: user.instagram_link, label: "Instagram" },
     { href: user.tiktok_link, label: "TikTok" },
-    { href: user.game_profile_link, label: "Spielerprofil" },
+    { href: user.game_profile_link, label: t("public.game_profile_link_label") },
   ].filter((link) => link.href);
 
   return (

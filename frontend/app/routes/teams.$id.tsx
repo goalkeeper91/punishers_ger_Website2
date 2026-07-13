@@ -1,5 +1,6 @@
 import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
 
@@ -43,6 +44,7 @@ export const loader: LoaderFunction = async ({ params }) => {
 
 export default function TeamDetailPage() {
   const { team } = useLoaderData() as { team: Team };
+  const { t } = useTranslation("teams");
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
@@ -54,7 +56,7 @@ export default function TeamDetailPage() {
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             {team.is_main_team && (
-              <p className="text-red-500 text-sm font-semibold uppercase tracking-wider mb-2">Main Team</p>
+              <p className="text-red-500 text-sm font-semibold uppercase tracking-wider mb-2">{t("detail.main_team_badge")}</p>
             )}
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{team.name}</h1>
             <p className="text-lg md:text-xl text-gray-300 max-w-3xl mx-auto uppercase tracking-wide">{team.game}</p>
@@ -71,9 +73,9 @@ export default function TeamDetailPage() {
 
         <section className="py-16 md:py-24 bg-gray-950">
           <div className="container mx-auto px-4">
-            <h2 className="text-3xl font-bold text-white mb-10 text-center">Roster</h2>
+            <h2 className="text-3xl font-bold text-white mb-10 text-center">{t("detail.roster_heading")}</h2>
             {team.players.length === 0 ? (
-              <p className="text-gray-500 text-center">Noch keine Spieler im Roster.</p>
+              <p className="text-gray-500 text-center">{t("detail.no_players")}</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
                 {team.players.map((player) => (
@@ -98,7 +100,7 @@ export default function TeamDetailPage() {
         </section>
 
         <div className="container mx-auto px-4 pb-16 text-center">
-          <a href="/teams" className="text-gray-400 hover:text-white text-sm">← Zurück zur Teamübersicht</a>
+          <a href="/teams" className="text-gray-400 hover:text-white text-sm">← {t("detail.back_to_teams")}</a>
         </div>
       </main>
     </div>

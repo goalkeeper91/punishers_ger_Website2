@@ -127,6 +127,13 @@ TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET") or None
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY") or None
 SOCIAL_STATS_SYNC_INTERVAL_MINUTES = int(os.environ.get("SOCIAL_STATS_SYNC_INTERVAL_MINUTES", "360"))
 
+# Automated News-article translation (news/translation.py) via a self-hosted
+# LibreTranslate instance (see docker-compose.yml) - free/local, same
+# rationale as the Tesseract OCR choice in social_stats/ocr_client.py. Empty
+# by default: translation is skipped gracefully (article still saves fine,
+# just without a translation) until this points at a running instance.
+LIBRETRANSLATE_URL = os.environ.get("LIBRETRANSLATE_URL") or None
+
 
 # Application definition
 
@@ -180,12 +187,27 @@ WSGI_APPLICATION = 'punishers_ger.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Falls back to the local SQLite file (zero setup) unless POSTGRES_HOST is
+# set - same graceful-fallback convention as EMAIL_BACKEND/ENCRYPTION_KEY.
+# The Docker Compose setup (docker-compose.yml) always sets POSTGRES_HOST.
+if os.environ.get("POSTGRES_HOST"):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get("POSTGRES_DB", "punishers"),
+            'USER': os.environ.get("POSTGRES_USER", "punishers"),
+            'PASSWORD': os.environ.get("POSTGRES_PASSWORD", ""),
+            'HOST': os.environ.get("POSTGRES_HOST"),
+            'PORT': os.environ.get("POSTGRES_PORT", "5432"),
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation

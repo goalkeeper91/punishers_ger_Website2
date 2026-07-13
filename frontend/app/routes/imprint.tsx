@@ -7,7 +7,11 @@
 //   ];
 // };
 
+import { useTranslation } from "react-i18next";
+
 export default function ImprintPage() {
+  const { t } = useTranslation("imprint");
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
@@ -15,9 +19,9 @@ export default function ImprintPage() {
         <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=Impressum+Banner')" }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">Impressum</h1>
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>
             <p className="text-lg md:text-xl text-gray-300 max-w-3xl mx-auto">
-              Hier finden Sie die gesetzlich vorgeschriebenen Angaben zu Punishers Germany.
+              {t("hero.description")}
             </p>
           </div>
         </section>
@@ -27,69 +31,69 @@ export default function ImprintPage() {
           <div className="container mx-auto px-4">
             <div className="max-w-3xl mx-auto bg-gray-800 p-8 rounded-lg shadow-xl space-y-8">
               <div>
-                <h2 className="text-3xl font-bold text-red-600 mb-4">Angaben gemäß § 5 TMG</h2>
+                <h2 className="text-3xl font-bold text-red-600 mb-4">{t("section1.heading")}</h2>
                 <p className="text-gray-300">
-                  Punishers Germany<br />
-                  [Name des Vertretungsberechtigten]<br />
-                  [Straße und Hausnummer]<br />
-                  [PLZ Ort]
+                  {t("section1.line1")}<br />
+                  {t("section1.line2")}<br />
+                  {t("section1.line3")}<br />
+                  {t("section1.line4")}
                 </p>
               </div>
 
               <div>
-                <h2 className="text-3xl font-bold text-red-600 mb-4">Kontakt</h2>
+                <h2 className="text-3xl font-bold text-red-600 mb-4">{t("section2.heading")}</h2>
                 <p className="text-gray-300">
-                  Telefon: [Telefonnummer]<br />
-                  E-Mail: <a href="mailto:info@punishers-germany.de" className="text-white hover:text-red-600 underline">info@punishers-germany.de</a>
+                  {t("section2.phone_label")}<br />
+                  {t("section2.email_label")} <a href="mailto:info@punishers-germany.de" className="text-white hover:text-red-600 underline">info@punishers-germany.de</a>
                 </p>
               </div>
 
               <div>
-                <h2 className="text-3xl font-bold text-red-600 mb-4">Vertreten durch</h2>
+                <h2 className="text-3xl font-bold text-red-600 mb-4">{t("section3.heading")}</h2>
                 <p className="text-gray-300">
-                  [Name des Vertretungsberechtigten]
+                  {t("section3.body")}
                 </p>
               </div>
 
               <div>
-                <h2 className="text-3xl font-bold text-red-600 mb-4">Registereintrag</h2>
+                <h2 className="text-3xl font-bold text-red-600 mb-4">{t("section4.heading")}</h2>
                 <p className="text-gray-300">
-                  Eintragung im Handelsregister.<br />
-                  Registergericht: [Zuständiges Registergericht]<br />
-                  Registernummer: [Registernummer]
+                  {t("section4.line1")}<br />
+                  {t("section4.line2")}<br />
+                  {t("section4.line3")}
                 </p>
                 <p className="text-gray-300 mt-4">
-                  (Falls zutreffend, ansonsten diesen Abschnitt entfernen oder anpassen)
+                  {t("section4.note")}
                 </p>
               </div>
 
               <div>
-                <h2 className="text-3xl font-bold text-red-600 mb-4">Umsatzsteuer-ID</h2>
+                <h2 className="text-3xl font-bold text-red-600 mb-4">{t("section5.heading")}</h2>
                 <p className="text-gray-300">
-                  Umsatzsteuer-Identifikationsnummer gemäß §27 a Umsatzsteuergesetz:<br />
-                  [Ihre Umsatzsteuer-ID]
+                  {t("section5.line1")}<br />
+                  {t("section5.line2")}
                 </p>
                 <p className="text-gray-300 mt-4">
-                  (Falls zutreffend, ansonsten diesen Abschnitt entfernen oder anpassen)
+                  {t("section5.note")}
                 </p>
               </div>
 
               <div>
-                <h2 className="text-3xl font-bold text-red-600 mb-4">Verantwortlich für den Inhalt nach § 55 Abs. 2 RStV</h2>
+                <h2 className="text-3xl font-bold text-red-600 mb-4">{t("section6.heading")}</h2>
                 <p className="text-gray-300">
-                  [Name des Verantwortlichen]<br />
-                  [Adresse des Verantwortlichen]
+                  {t("section6.line1")}<br />
+                  {t("section6.line2")}
                 </p>
               </div>
 
               <div>
-                <h2 className="text-3xl font-bold text-red-600 mb-4">Streitschlichtung</h2>
+                <h2 className="text-3xl font-bold text-red-600 mb-4">{t("section7.heading")}</h2>
                 <p className="text-gray-300">
-                  Die Europäische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit: <a href="https://ec.europa.eu/consumers/odr" target="_blank" rel="noopener noreferrer" className="text-white hover:text-red-600 underline">https://ec.europa.eu/consumers/odr</a>.<br />
-                  Unsere E-Mail-Adresse finden Sie oben im Impressum.
+                  {t("section7.body_prefix")} <a href="https://ec.europa.eu/consumers/odr" target="_blank" rel="noopener noreferrer" className="text-white hover:text-red-600 underline">https://ec.europa.eu/consumers/odr</a>.<br />
+                  {t("section7.body_suffix")}
                 </p>
                 <p className="text-gray-300 mt-4">
-                  Wir sind nicht bereit oder verpflichtet, an Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen.
+                  {t("section7.note")}
                 </p>
               </div>
             </div>

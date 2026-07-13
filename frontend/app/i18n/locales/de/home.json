@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "title": "Punishers Germany - Esport Organisation",
+    "description": "Deine neue Heimat im Esport. Werde Teil der Punishers Germany Familie!"
+  },
+  "hero": {
+    "title": "Punishers Germany",
+    "subtitle": "Deine neue Heimat im Esport",
+    "description": "Wir sind eine aufstrebende Esport-Organisation, die Talente fördert und eine leidenschaftliche Community aufbaut. Werde Teil unserer Reise!",
+    "cta": "Jetzt beitreten!"
+  },
+  "teams_section": {
+    "heading": "Unsere Teams",
+    "description": "Lerne die Spieler kennen, die uns auf dem Schlachtfeld vertreten und unsere Farben mit Stolz tragen.",
+    "cs2_title": "CS2 Squad",
+    "cs2_description": "Unsere Counter-Strike 2 Profis dominieren die Server mit Präzision und Teamwork.",
+    "valorant_title": "Valorant Elite",
+    "valorant_description": "Schnelle Reflexe und taktisches Geschick zeichnen unser Valorant Team aus.",
+    "lol_title": "League of Legends",
+    "lol_description": "Strategie und Koordination sind der Schlüssel zum Erfolg unseres LoL-Teams.",
+    "learn_more": "Mehr erfahren"
+  },
+  "creators_section": {
+    "heading": "Unsere Content Creators",
+    "description": "Entdecke die Persönlichkeiten, die unsere Community unterhalten, inspirieren und unsere Werte in die Welt tragen.",
+    "creator1_bio": "Streamt täglich Shooter und RPGs. Folgt ihr für spannende Unterhaltung!",
+    "creator2_bio": "Taktikanalysen und Highlights aus der Esport-Welt. Immer auf dem neuesten Stand.",
+    "creator3_bio": "Liebhaber klassischer Spiele und entspannter Streams. Nostalgie pur!"
+  },
+  "join_section": {
+    "heading": "Werde Teil der Punishers Germany Familie!",
+    "description": "Egal ob du ein aufstrebender Esportler, ein kreativer Content Creator oder einfach nur ein leidenschaftlicher Fan bist – wir suchen dich!",
+    "player_title": "Als Spieler",
+    "player_description": "Du bist ein talentierter Esportler und suchst ein Team, das dich fördert und fordert? Bewirb dich jetzt und zeig uns dein Können!",
+    "player_cta": "Jetzt bewerben",
+    "creator_title": "Als Content Creator",
+    "creator_description": "Du liebst es, Inhalte zu erstellen, deine Leidenschaft zu teilen und eine Community aufzubauen? Werde Teil unseres Creator-Teams!",
+    "creator_cta": "Mehr Infos",
+    "community_title": "Als Community-Mitglied",
+    "community_description": "Werde Teil unserer wachsenden Discord-Community, triff Gleichgesinnte und verpasse keine Neuigkeiten!",
+    "community_cta": "Discord beitreten"
+  },
+  "contact_section": {
+    "heading": "Kontaktiere uns",
+    "description": "Hast du Fragen, Anregungen oder möchtest du mit uns zusammenarbeiten? Wir freuen uns auf deine Nachricht!",
+    "cta": "E-Mail senden"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "hero": {
+    "title": "News & Updates",
+    "description": "Stay up to date on the latest developments, achievements, and announcements from Punishers Germany."
+  },
+  "latest": {
+    "heading": "Latest News",
+    "read_more": "Read More"
+  },
+  "archive": {
+    "heading": "News Archive",
+    "details": "Details",
+    "older_news": "Older News"
+  },
+  "detail": {
+    "back_to_news": "Back to News",
+    "not_found": "Article not found.",
+    "machine_translated": "Machine translated"
+  }
+}

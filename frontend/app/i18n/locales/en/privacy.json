@@ -1,0 +1,37 @@
+{
+  "hero": {
+    "title": "Privacy Policy",
+    "description": "Information on the protection of your personal data on our website."
+  },
+  "section1": {
+    "heading": "1. Privacy at a Glance",
+    "subheading1": "General Information",
+    "intro": "The following notes provide a simple overview of what happens to your personal data when you visit our website. Personal data is any data that can be used to personally identify you. Detailed information on the subject of data protection can be found in our privacy policy listed below this text.",
+    "subheading2": "Data Collection on Our Website",
+    "q1_label": "Who is responsible for data collection on this website?",
+    "q1_text": "Data processing on this website is carried out by the website operator. Their contact details can be found in the imprint of this website.",
+    "q2_label": "How do we collect your data?",
+    "q2_text1": "Your data is collected, on the one hand, by you providing it to us. This can be, for example, data you enter in a contact form.",
+    "q2_text2": "Other data is collected automatically, or after your consent, by our IT systems when you visit the website. This is primarily technical data (e.g., internet browser, operating system, or time of page access). This data is collected automatically as soon as you enter our website.",
+    "q3_label": "What do we use your data for?",
+    "q3_text": "Part of the data is collected to ensure error-free provision of the website. Other data may be used to analyze your user behavior.",
+    "q4_label": "What rights do you have regarding your data?",
+    "q4_text": "You have the right at any time to receive free information about the origin, recipient, and purpose of your stored personal data. You also have the right to request the correction or deletion of this data. If you have given consent to data processing, you can revoke this consent at any time for the future. You also have the right, under certain circumstances, to request the restriction of the processing of your personal data. Furthermore, you have the right to lodge a complaint with the competent supervisory authority.",
+    "closing": "You can contact us at any time regarding this and any other questions about data protection at the address given in the imprint."
+  },
+  "section2": {
+    "heading": "2. Hosting and Content Delivery Networks (CDN)",
+    "subheading1": "External Hosting",
+    "text1": "This website is hosted by an external service provider (hoster). The personal data collected on this website is stored on the hoster's servers. This may primarily include IP addresses, contact requests, metadata and communication data, contract data, contact details, names, website access, and other data generated via a website.",
+    "text2": "The hoster is used for the purpose of fulfilling our contracts with our potential and existing customers (Art. 6 (1) (b) GDPR) and in the interest of a secure, fast, and efficient provision of our online services by a professional provider (Art. 6 (1) (f) GDPR).",
+    "text3": "Our hoster will only process your data to the extent necessary to fulfill its performance obligations and will follow our instructions regarding this data."
+  },
+  "section3": {
+    "heading": "3. General Information and Mandatory Notices",
+    "subheading1": "Data Protection",
+    "text1": "The operators of these pages take the protection of your personal data very seriously. We treat your personal data confidentially and in accordance with statutory data protection regulations and this privacy policy.",
+    "text2": "When you use this website, various personal data is collected. Personal data is data that can be used to personally identify you. This privacy policy explains what data we collect and what we use it for. It also explains how and for what purpose this is done.",
+    "text3": "We would like to point out that data transmission over the internet (e.g., when communicating via email) can have security vulnerabilities. Complete protection of data against access by third parties is not possible."
+  },
+  "disclaimer": "(This is sample text for a privacy policy. Please consult a legal expert to create a complete privacy policy valid for your specific situation.)"
+}

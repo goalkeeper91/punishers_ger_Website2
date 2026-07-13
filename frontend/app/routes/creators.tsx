@@ -9,6 +9,7 @@
 
 import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
+import { useTranslation } from "react-i18next";
 import { fetchCreators, type Creator } from "~/lib/publicContent";
 
 export const loader: LoaderFunction = async () => {
@@ -17,6 +18,7 @@ export const loader: LoaderFunction = async () => {
 };
 
 function LiveBadge({ creator }: { creator: Creator }) {
+  const { t } = useTranslation("creators");
   if (!creator.live) return null;
   return (
     <a
@@ -28,7 +30,7 @@ function LiveBadge({ creator }: { creator: Creator }) {
       <span className="flex h-2.5 w-2.5 shrink-0 rounded-full bg-red-600 animate-pulse" />
       <span className="min-w-0">
         <span className="block text-xs font-bold uppercase tracking-wide text-red-500">
-          Live{creator.live.viewer_count != null ? ` · ${creator.live.viewer_count} Zuschauer` : ""}
+          {t("live.badge")}{creator.live.viewer_count != null ? ` · ${t("live.viewers", { count: creator.live.viewer_count })}` : ""}
         </span>
         {creator.live.title && (
           <span className="block truncate text-xs text-gray-300">{creator.live.title}</span>
@@ -63,6 +65,7 @@ function SocialLinks({ creator, size = "base" }: { creator: Creator; size?: "bas
 
 export default function CreatorsPage() {
   const { creators } = useLoaderData() as { creators: Creator[] };
+  const { t } = useTranslation("creators");
   const featuredCreators = creators.filter((c) => c.is_featured);
   const otherCreators = creators.filter((c) => !c.is_featured);
 
@@ -73,9 +76,9 @@ export default function CreatorsPage() {
         <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=Creators+Banner')" }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">Unsere Content Creators</h1>
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>
             <p className="text-lg md:text-xl text-gray-300 max-w-3xl mx-auto">
-              Entdecke die Gesichter hinter unseren Streams und Videos, die unsere Community mit Leidenschaft und Kreativität bereichern.
+              {t("hero.description")}
             </p>
           </div>
         </section>
@@ -83,7 +86,7 @@ export default function CreatorsPage() {
         {creators.length === 0 ? (
           <section className="py-16 md:py-24 bg-gray-900">
             <div className="container mx-auto px-4 text-center">
-              <p className="text-gray-500">Noch keine Content Creator hinterlegt.</p>
+              <p className="text-gray-500">{t("empty")}</p>
             </div>
           </section>
         ) : (
@@ -92,9 +95,9 @@ export default function CreatorsPage() {
             {featuredCreators.length > 0 && (
               <section className="py-16 md:py-24 bg-gray-900">
                 <div className="container mx-auto px-4 text-center">
-                  <h2 className="text-4xl font-bold text-white mb-6">Unsere Featured Creators</h2>
+                  <h2 className="text-4xl font-bold text-white mb-6">{t("featured.heading")}</h2>
                   <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
-                    Lerne unsere Top-Creators kennen, die regelmäßig für beste Unterhaltung sorgen.
+                    {t("featured.description")}
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {featuredCreators.map((creator) => (
@@ -119,9 +122,9 @@ export default function CreatorsPage() {
             {otherCreators.length > 0 && (
               <section className="py-16 md:py-24 bg-gray-950">
                 <div className="container mx-auto px-4 text-center">
-                  <h2 className="text-4xl font-bold text-white mb-6">Alle unsere Creators</h2>
+                  <h2 className="text-4xl font-bold text-white mb-6">{t("all.heading")}</h2>
                   <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
-                    Eine wachsende Familie von Talenten, die ihre Leidenschaft mit der Welt teilen.
+                    {t("all.description")}
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
                     {otherCreators.map((creator) => (

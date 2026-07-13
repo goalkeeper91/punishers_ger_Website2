@@ -17,7 +17,11 @@ interface NewsArticle {
   published_date: string;
   updated_date: string;
   status: string;
+  original_language: string;
+  is_machine_translated: boolean;
 }
+
+const LANGUAGE_LABELS: Record<string, string> = { de: "Deutsch", en: "Englisch" };
 
 export const clientLoader: ClientLoaderFunction = async ({ params }) => {
   if (!isLoggedIn()) {
@@ -92,6 +96,15 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
       return { success: "Artikel gespeichert." };
     }
 
+    if (formType === "retranslate") {
+      const response = await authFetch(`/admin/news/${params.id}/translate/`, { method: "POST" });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: "Übersetzungen aktualisiert." };
+    }
+
     return { error: "Unbekannter Formular-Typ." };
   } catch (error: any) {
     console.error("Failed to update news article:", error);
@@ -159,7 +172,25 @@ export default function AdminNewsEditPage() {
 
         {/* Details Section */}
         <div className="bg-gray-800 p-8 rounded-lg shadow-xl">
-          <h2 className="text-2xl font-bold text-white mb-6">Artikeldetails</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+            <h2 className="text-2xl font-bold text-white">Artikeldetails</h2>
+            <div className="flex items-center gap-3 text-sm text-gray-400">
+              <span>
+                Erkannte Sprache: <span className="text-gray-200 font-semibold">{LANGUAGE_LABELS[article.original_language] ?? article.original_language}</span>
+                {" "}– wird automatisch in die jeweils andere Sprache übersetzt.
+              </span>
+              <Form method="post">
+                <input type="hidden" name="_formType" value="retranslate" />
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="py-1.5 px-3 rounded-md text-white text-xs font-semibold bg-gray-700 hover:bg-gray-600 disabled:opacity-50 whitespace-nowrap"
+                >
+                  Neu übersetzen
+                </button>
+              </Form>
+            </div>
+          </div>
           <Form method="post" className="space-y-6">
             <input type="hidden" name="_formType" value="update" />
             <div>

@@ -1,0 +1,87 @@
+{
+  "page_title": "Stats",
+  "loading": "Loading stats...",
+  "empty": {
+    "no_maps": "No maps played yet.",
+    "no_roster_players": "No players on the roster.",
+    "no_teams": "No teams yet.",
+    "no_recent_matches": "No detailed match stats synced yet.",
+    "no_faceit_stats": "No FACEIT stats linked yet. Once a FACEIT profile is linked to your player profile and synced, your stats will appear here.",
+    "no_team": "No team assigned."
+  },
+  "map_stats": {
+    "record": "{{wins}}W / {{losses}}L · {{percent}}% ({{matches}} matches)"
+  },
+  "player_table": {
+    "player": "Player",
+    "level": "Level",
+    "elo": "Elo",
+    "matches": "Matches",
+    "win_rate": "Win Rate",
+    "kd": "K/D",
+    "hs_percent": "HS%",
+    "avg_utility_dmg": "Avg. Utility DMG",
+    "avg_flashed": "Avg. Flashed",
+    "entry_rate": "Entry Rate"
+  },
+  "matches_table": {
+    "map": "Map",
+    "opponent": "Opponent",
+    "result": "Result",
+    "kda": "K/D/A",
+    "hs_percent": "HS%",
+    "mvps": "MVPs",
+    "flashed": "Flashed",
+    "unknown_map": "Unknown",
+    "win": "Win",
+    "loss": "Loss"
+  },
+  "teams_table": {
+    "team": "Team",
+    "players": "Players",
+    "matches": "Matches",
+    "wins_losses": "Wins/Losses",
+    "win_rate": "Win Rate"
+  },
+  "admin_view": {
+    "all_teams": "All Teams",
+    "all_players": "All Players"
+  },
+  "captain_view": {
+    "matches": "Matches",
+    "wins_losses": "Wins / Losses",
+    "win_rate": "Win Rate",
+    "maps_heading": "{{team}} · Maps",
+    "roster_heading": "Roster Stats"
+  },
+  "player_view": {
+    "my_stats_heading": "My Stats",
+    "faceit_level": "FACEIT Level",
+    "elo": "Elo",
+    "matches": "Matches",
+    "win_rate": "Win Rate",
+    "kd": "K/D",
+    "hs_percent": "Headshot %",
+    "advanced_stats_heading": "Advanced CS2 Stats",
+    "recent_matches_heading": "Recent Matches",
+    "team_stats_heading": "Team Stats",
+    "team_stats_heading_with_name": "{{team}} · Team Stats (Maps)",
+    "matches_label": "Matches",
+    "wins_losses": "Wins / Losses",
+    "win_rate_label": "Win Rate"
+  },
+  "advanced_stats": {
+    "avg_kills": "Avg. Kills",
+    "avg_deaths": "Avg. Deaths",
+    "avg_assists": "Avg. Assists",
+    "total_mvps": "Total MVPs",
+    "avg_utility_damage": "Avg. Utility Damage",
+    "avg_enemies_flashed": "Avg. Enemies Flashed",
+    "flash_success_rate": "Flash Success Rate",
+    "entry_success_rate": "Entry Success Rate",
+    "clutch_1v1": "1v1 Clutch Rate",
+    "clutch_1v2": "1v2 Clutch Rate",
+    "triple_quad_penta": "Triple/Quad/Penta Kills",
+    "matches_tracked": "Matches Tracked"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "hero": {
+    "title": "Our Content Creators",
+    "description": "Discover the faces behind our streams and videos who enrich our community with passion and creativity."
+  },
+  "empty": "No content creators added yet.",
+  "featured": {
+    "heading": "Our Featured Creators",
+    "description": "Meet our top creators who regularly deliver the best entertainment."
+  },
+  "all": {
+    "heading": "All Our Creators",
+    "description": "A growing family of talent sharing their passion with the world."
+  },
+  "live": {
+    "badge": "Live",
+    "viewers": "{{count}} viewers"
+  }
+}

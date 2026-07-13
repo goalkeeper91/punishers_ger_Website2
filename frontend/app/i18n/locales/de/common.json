@@ -1,0 +1,34 @@
+{
+  "nav": {
+    "home": "Home",
+    "news": "News",
+    "teams": "Teams",
+    "creators": "Creators",
+    "join_us": "Beitreten",
+    "partners": "Partner",
+    "contact": "Kontakt",
+    "login": "Anmelden",
+    "open_menu": "Menü öffnen",
+    "close_menu": "Menü schließen"
+  },
+  "user_menu": {
+    "my_profile": "Mein Profil",
+    "stats": "Statistiken",
+    "management": "Verwaltung",
+    "logout": "Logout"
+  },
+  "footer": {
+    "tagline": "Deine neue Heimat im Esport.",
+    "nav_heading": "Navigation",
+    "follow_us_heading": "Folge uns",
+    "no_social_links": "Noch keine Social Links hinterlegt.",
+    "legal_heading": "Rechtliches",
+    "imprint": "Impressum",
+    "privacy": "Datenschutz",
+    "copyright": "© {{year}} Punishers Germany. Alle Rechte vorbehalten."
+  },
+  "language_switcher": {
+    "german": "DE",
+    "english": "EN"
+  }
+}

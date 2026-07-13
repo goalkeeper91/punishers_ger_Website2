@@ -1,0 +1,20 @@
+{
+  "hero": {
+    "title": "Our Partners & Sponsors",
+    "description": "We're proud of our strong partnerships that support us on our path to success."
+  },
+  "premium": {
+    "heading": "Premium Partners",
+    "description": "Special thanks to our premium sponsors, who play a major role in our growth."
+  },
+  "all": {
+    "heading": "All Our Sponsors",
+    "description": "Every partner is an important part of our Punishers Germany family.",
+    "empty": "No further sponsors yet."
+  },
+  "become": {
+    "heading": "Become Our Partner!",
+    "description": "Want to connect your brand with a dynamic and growing esports organization? Contact us to learn more about our partnership opportunities.",
+    "cta": "Request Partnership"
+  }
+}

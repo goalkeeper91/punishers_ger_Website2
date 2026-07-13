@@ -38,6 +38,10 @@ class NewsArticle(models.Model):
         default='draft',
         verbose_name="Status"
     )
+    # Auto-detected from title+content at save time (news/translation.py) -
+    # title/content above always stay in this language; other supported
+    # languages are auto-translated into NewsArticleTranslation rows below.
+    original_language = models.CharField(max_length=5, default="de", verbose_name="Originalsprache")
 
     class Meta:
         verbose_name = "News Artikel"
@@ -49,3 +53,27 @@ class NewsArticle(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class NewsArticleTranslation(models.Model):
+    """An auto-translated copy of a NewsArticle's title/content in one other
+    language - see news/translation.py. The article's own title/content
+    fields are always the author's original text in `original_language`;
+    this table holds the machine-translated versions for every other
+    supported language, refreshed whenever the article is created/updated
+    (or manually re-triggered from the admin UI)."""
+
+    article = models.ForeignKey(NewsArticle, on_delete=models.CASCADE, related_name="translations")
+    language = models.CharField(max_length=5)
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    is_machine_translated = models.BooleanField(default=True)
+    translated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "News-Artikel-Übersetzung"
+        verbose_name_plural = "News-Artikel-Übersetzungen"
+        unique_together = [("article", "language")]
+
+    def __str__(self):
+        return f"{self.article.title} ({self.language})"

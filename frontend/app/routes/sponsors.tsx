@@ -9,6 +9,7 @@
 
 import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
+import { useTranslation } from "react-i18next";
 import { fetchActiveSponsors, trackSponsorClick, type Sponsor } from "~/lib/publicContent";
 
 export const loader: LoaderFunction = async () => {
@@ -34,6 +35,7 @@ function SponsorLogo({ sponsor }: { sponsor: Sponsor }) {
 
 export default function SponsorsPage() {
   const { sponsors } = useLoaderData() as { sponsors: Sponsor[] };
+  const { t } = useTranslation("sponsors");
   const premiumSponsors = sponsors.filter((s) => s.tier === "premium");
   const generalSponsors = sponsors.filter((s) => s.tier === "general");
 
@@ -44,9 +46,9 @@ export default function SponsorsPage() {
         <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=Sponsors+Banner')" }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">Unsere Partner & Sponsoren</h1>
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>
             <p className="text-lg md:text-xl text-gray-300 max-w-3xl mx-auto">
-              Wir sind stolz auf unsere starken Partnerschaften, die uns auf unserem Weg zum Erfolg unterstützen.
+              {t("hero.description")}
             </p>
           </div>
         </section>
@@ -55,9 +57,9 @@ export default function SponsorsPage() {
         {premiumSponsors.length > 0 && (
           <section className="py-16 md:py-24 bg-gray-900">
             <div className="container mx-auto px-4 text-center">
-              <h2 className="text-4xl font-bold text-white mb-6">Premium Partner</h2>
+              <h2 className="text-4xl font-bold text-white mb-6">{t("premium.heading")}</h2>
               <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
-                Ein besonderer Dank gilt unseren Premium-Sponsoren, die maßgeblich zu unserem Wachstum beitragen.
+                {t("premium.description")}
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-center justify-center">
                 {premiumSponsors.map((sponsor) => (
@@ -73,9 +75,9 @@ export default function SponsorsPage() {
         {/* All Sponsors Section */}
         <section className="py-16 md:py-24 bg-gray-950">
           <div className="container mx-auto px-4 text-center">
-            <h2 className="text-4xl font-bold text-white mb-6">Alle unsere Sponsoren</h2>
+            <h2 className="text-4xl font-bold text-white mb-6">{t("all.heading")}</h2>
             <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
-              Jeder Partner ist ein wichtiger Teil unserer Punishers Germany Familie.
+              {t("all.description")}
             </p>
             {generalSponsors.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8 items-center justify-center">
@@ -86,7 +88,7 @@ export default function SponsorsPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500">Noch keine weiteren Sponsoren.</p>
+              <p className="text-gray-500">{t("all.empty")}</p>
             )}
           </div>
         </section>
@@ -94,12 +96,12 @@ export default function SponsorsPage() {
         {/* Become a Sponsor Section */}
         <section className="py-16 md:py-24 bg-gray-900 text-center">
           <div className="container mx-auto px-4">
-            <h2 className="text-4xl font-bold text-white mb-6">Werde unser Partner!</h2>
+            <h2 className="text-4xl font-bold text-white mb-6">{t("become.heading")}</h2>
             <p className="text-lg text-gray-400 mb-8 max-w-3xl mx-auto">
-              Möchtest du deine Marke mit einer dynamischen und wachsenden Esport-Organisation verbinden? Kontaktiere uns, um mehr über unsere Partnerschaftsmöglichkeiten zu erfahren.
+              {t("become.description")}
             </p>
             <a href="/contact" className="inline-block bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">
-              Partnerschaft anfragen
+              {t("become.cta")}
             </a>
           </div>
         </section>

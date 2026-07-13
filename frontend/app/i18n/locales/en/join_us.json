@@ -1,0 +1,42 @@
+{
+  "hero": {
+    "title": "Join the Punishers Germany Family!",
+    "description": "Whether you're an aspiring esports athlete, a creative content creator, or simply a passionate fan - we want you!"
+  },
+  "opportunities": {
+    "heading": "Your Opportunities With Us",
+    "player": {
+      "title": "As a Player",
+      "description": "You're a talented esports athlete looking for a professional environment to take your skills to the next level? Apply now for our teams!",
+      "perk1": "Professional coaching",
+      "perk2": "Team infrastructure",
+      "perk3": "Tournament participation",
+      "perk4": "Community support",
+      "cta": "Apply now"
+    },
+    "creator": {
+      "title": "As a Content Creator",
+      "description": "You love creating content, sharing your passion, and building a community? Join our creator team and grow with us!",
+      "perk1": "Marketing & reach support",
+      "perk2": "Access to exclusive events",
+      "perk3": "Networking with other creators",
+      "perk4": "Monetization opportunities",
+      "cta": "Learn more"
+    },
+    "community": {
+      "title": "As a Community Member",
+      "description": "Join our growing Discord community, meet like-minded people, chat, and never miss any news or events!",
+      "perk1": "Exclusive Discord roles",
+      "perk2": "Participation in community events",
+      "perk3": "Direct line to players & creators",
+      "perk4": "Early access to news & merch",
+      "cta": "Join Discord"
+    }
+  },
+  "application": {
+    "heading": "Ready to Take the Next Step?",
+    "description": "We can't wait to meet you! Use our application form or contact us directly.",
+    "form_cta": "Go to Application Form",
+    "email_cta": "Send Email"
+  }
+}

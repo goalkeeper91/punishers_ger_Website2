@@ -1,18 +1,23 @@
 import type { ActionFunction, LoaderFunction } from "react-router";
 import { Form, useActionData } from "react-router";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { extractErrorMessage } from "~/lib/errors";
+import { translate, getLanguageFromCookieHeader } from "~/i18n/config";
 
 export const loader: LoaderFunction = async () => {
   return null;
 };
 
 export const action: ActionFunction = async ({ request }) => {
+  const language = getLanguageFromCookieHeader(request.headers.get("Cookie"));
+  const t = (key: string) => translate(language, key, "auth");
+
   const formData = await request.formData();
   const email = formData.get("email");
 
   if (typeof email !== "string" || !email.includes("@")) {
-    return { errors: { email: "Ungültige E-Mail Adresse." } };
+    return { errors: { email: t("forgot_password.errors.invalid_email") } };
   }
 
   try {
@@ -24,7 +29,7 @@ export const action: ActionFunction = async ({ request }) => {
 
     if (!response.ok) {
       const data = await response.json();
-      return { errors: { general: extractErrorMessage(data, "Anfrage fehlgeschlagen. Bitte versuchen Sie es erneut.") } };
+      return { errors: { general: extractErrorMessage(data, t("forgot_password.errors.generic_failure")) } };
     }
 
     // Backend always returns the same generic message, whether or not the
@@ -32,33 +37,34 @@ export const action: ActionFunction = async ({ request }) => {
     return { submitted: true };
   } catch (error) {
     console.error("Password reset request failed:", error);
-    return { errors: { general: "Ein unerwarteter Fehler ist aufgetreten." } };
+    return { errors: { general: t("forgot_password.errors.unexpected") } };
   }
 };
 
 export default function ForgotPasswordPage() {
   const actionData = useActionData() as { errors?: { [key: string]: string }; submitted?: boolean } | undefined;
+  const { t } = useTranslation("auth");
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8 p-10 bg-gray-800 rounded-lg shadow-xl">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
-            Passwort vergessen?
+            {t("forgot_password.heading")}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-400">
-            Gib deine E-Mail Adresse ein, wir schicken dir einen Link zum Zurücksetzen.
+            {t("forgot_password.description")}
           </p>
         </div>
 
         {actionData?.submitted ? (
           <p className="text-center text-gray-300">
-            Falls ein Konto mit dieser E-Mail-Adresse existiert, haben wir einen Link zum Zurücksetzen des Passworts geschickt. Bitte prüfe dein Postfach.
+            {t("forgot_password.success_message")}
           </p>
         ) : (
           <Form className="mt-8 space-y-6" method="post">
             <div>
-              <label htmlFor="email-address" className="sr-only">E-Mail Adresse</label>
+              <label htmlFor="email-address" className="sr-only">{t("forgot_password.email_placeholder")}</label>
               <input
                 id="email-address"
                 name="email"
@@ -66,7 +72,7 @@ export default function ForgotPasswordPage() {
                 autoComplete="email"
                 required
                 className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-500 text-white bg-gray-700 focus:outline-none focus:ring-red-500 focus:border-red-500 focus:z-10 sm:text-sm"
-                placeholder="E-Mail Adresse"
+                placeholder={t("forgot_password.email_placeholder") ?? undefined}
               />
               {actionData?.errors?.email && (
                 <p className="mt-2 text-sm text-red-500">{actionData.errors.email}</p>
@@ -82,14 +88,14 @@ export default function ForgotPasswordPage() {
                 type="submit"
                 className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
               >
-                Link anfordern
+                {t("forgot_password.submit")}
               </button>
             </div>
           </Form>
         )}
 
         <p className="mt-2 text-center text-sm text-gray-400">
-          <a href="/login" className="font-medium text-red-600 hover:text-red-500">Zurück zur Anmeldung</a>
+          <a href="/login" className="font-medium text-red-600 hover:text-red-500">{t("forgot_password.back_to_login")}</a>
         </p>
       </div>
     </div>

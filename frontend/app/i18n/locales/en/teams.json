@@ -1,0 +1,27 @@
+{
+  "hero": {
+    "title": "Our Esports Teams",
+    "description": "Here you'll find all the info on our talented players and the games we compete in."
+  },
+  "filter": {
+    "heading": "Filter by Game",
+    "all_games": "All Games"
+  },
+  "main_teams": {
+    "heading": "Our Main Teams",
+    "description": "These are the flagships of our organization, competing for wins at the highest level.",
+    "team_profile": "Team Profile"
+  },
+  "other_teams": {
+    "heading": "Discover More Teams",
+    "description": "Besides our main teams, we have a wide range of other talented squads across different games.",
+    "details": "Details",
+    "show_all": "Show All Teams"
+  },
+  "detail": {
+    "main_team_badge": "Main Team",
+    "roster_heading": "Roster",
+    "no_players": "No players on the roster yet.",
+    "back_to_teams": "Back to Teams Overview"
+  }
+}

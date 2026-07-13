@@ -1,0 +1,66 @@
+{
+  "loading": "Loading profile...",
+  "not_found": "Profile not found or not signed in.",
+  "welcome": "Welcome, {{username}}!",
+  "sidebar": {
+    "heading": "My Profile",
+    "edit_profile": "Edit Profile",
+    "stats_admin": "Stats (all teams)",
+    "stats_team_manager": "Team Stats",
+    "stats_player": "My Stats",
+    "management": "Management"
+  },
+  "messages": {
+    "twitch_connected": "Twitch channel connected successfully.",
+    "twitch_error": "Twitch connection failed. Please try again."
+  },
+  "picture": {
+    "heading": "Profile Picture",
+    "upload_label": "Upload a new profile picture",
+    "uploading": "Uploading...",
+    "save": "Save Profile Picture"
+  },
+  "details": {
+    "heading": "Edit Profile Details",
+    "username_label": "Username",
+    "email_label": "Email",
+    "first_name_label": "First Name",
+    "last_name_label": "Last Name",
+    "steam_id_label": "Steam ID",
+    "game_profile_link_label": "Game Profile Link",
+    "twitter_link_label": "Twitter Link",
+    "twitch_link_label": "Twitch Link",
+    "youtube_link_label": "YouTube Link",
+    "instagram_link_label": "Instagram Link",
+    "tiktok_link_label": "TikTok Link",
+    "saving": "Saving...",
+    "save": "Save Profile"
+  },
+  "social": {
+    "heading": "Social Media Connections",
+    "description": "Connect your Twitch channel so your follower count is automatically synced for sponsor reporting, instead of an admin maintaining it manually.",
+    "connected_as": "Connected as {{login}}",
+    "not_connected": "Not connected",
+    "disconnect": "Disconnect",
+    "connect": "Connect Twitch",
+    "redirecting": "Redirecting..."
+  },
+  "reach": {
+    "heading": "My Reach",
+    "description": "There's no automatic sync (yet) for Twitter/X, Instagram, and TikTok. Enter your numbers yourself, or upload a screenshot (e.g. of your profile or post insights) - the values are read locally and entered as a suggestion, the image itself is never stored anywhere."
+  },
+  "public": {
+    "not_found": "User profile not found.",
+    "game_profile_link_label": "Player Profile"
+  },
+  "action_messages": {
+    "profile_updated": "Profile updated successfully!",
+    "no_file_selected": "No file selected.",
+    "picture_uploaded": "Profile picture uploaded successfully!",
+    "twitch_disconnected": "Twitch connection disconnected.",
+    "stats_updated": "Stats updated.",
+    "unknown_form_type": "Unknown form type.",
+    "generic_error": "An error occurred.",
+    "twitch_connect_failed": "Could not start Twitch connection."
+  }
+}

@@ -1,12 +1,14 @@
 import type { ClientLoaderFunction, ClientActionFunction } from "react-router";
 import { useLoaderData, Form, redirect, useActionData, useNavigation, useSearchParams } from "react-router";
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { authFetch, isLoggedIn, clearTokens, hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "~/lib/auth";
 import { extractErrorMessage } from "~/lib/errors";
 import { getAdminNavItems } from "~/lib/adminNav";
 import { imageFallback } from "~/lib/sampleAssets";
 import { TrendBadge, ViewerStatsBadge } from "~/components/TrendBadge";
 import { SocialMetricsCard } from "~/components/SocialMetricsCard";
+import { translate, getLanguageFromCookieHeader } from "~/i18n/config";
 import {
   fetchTwitchAuthorizeUrl,
   disconnectTwitchPlayer,
@@ -66,15 +68,22 @@ export const clientLoader: ClientLoaderFunction = async () => {
 };
 
 export function HydrateFallback() {
+  const { t } = useTranslation("profile");
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans flex items-center justify-center">
-      <p className="text-xl">Profil wird geladen...</p>
+      <p className="text-xl">{t("loading")}</p>
     </div>
   );
 }
 
 // --- CLIENT ACTION FUNCTION ---
+// Runs outside React render, so error/success messages use the static
+// translate() helper (see ~/i18n/config) with the language read directly
+// from document.cookie, not the useTranslation() hook.
 export const clientAction: ClientActionFunction = async ({ request }) => {
+  const language = getLanguageFromCookieHeader(document.cookie);
+  const t = (key: string) => translate(language, key, "profile");
+
   const formData = await request.formData();
   const formType = formData.get("_formType"); // To distinguish between profile update and image upload
 
@@ -107,12 +116,12 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
         const errorData = await response.json();
         throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
       }
-      return { success: "Profil erfolgreich aktualisiert!" };
+      return { success: t("action_messages.profile_updated") };
 
     } else if (formType === "profilePictureUpload") {
       const file = formData.get("profile_picture");
       if (!file || !(file instanceof File)) {
-        return { error: "Keine Datei ausgewählt." };
+        return { error: t("action_messages.no_file_selected") };
       }
 
       const imageFormData = new FormData();
@@ -127,10 +136,10 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
         const errorData = await response.json();
         throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
       }
-      return { success: "Profilbild erfolgreich hochgeladen!" };
+      return { success: t("action_messages.picture_uploaded") };
     } else if (formType === "disconnectTwitch") {
       await disconnectTwitchPlayer();
-      return { success: "Twitch-Verbindung getrennt." };
+      return { success: t("action_messages.twitch_disconnected") };
     } else if (formType === "updateMySocialStats") {
       const platform = String(formData.get("platform"));
       const payload: SocialMetricsPayload = {};
@@ -141,13 +150,13 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
         if (Number.isFinite(n)) payload[field] = n;
       }
       await updateMySocialStats(platform, payload);
-      return { success: "Statistik aktualisiert." };
+      return { success: t("action_messages.stats_updated") };
     }
 
-    return { error: "Unbekannter Formular-Typ." };
+    return { error: t("action_messages.unknown_form_type") };
   } catch (error: any) {
     console.error("Action failed:", error);
-    return { error: error.message || "Ein Fehler ist aufgetreten." };
+    return { error: error.message || t("action_messages.generic_error") };
   }
 };
 
@@ -157,6 +166,7 @@ export default function ProfilePage() {
   const actionData = useActionData() as { error?: string; success?: string } | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
+  const { t } = useTranslation("profile");
 
   const { user, error: loaderError, socialChannels } = loaderData;
   const twitchChannel = socialChannels.find((c) => c.platform === "twitch") ?? null;
@@ -178,7 +188,7 @@ export default function ProfilePage() {
       const url = await fetchTwitchAuthorizeUrl("player");
       window.location.href = url;
     } catch (err: any) {
-      setTwitchConnectError(err.message || "Twitch-Verbindung konnte nicht gestartet werden.");
+      setTwitchConnectError(err.message || t("action_messages.twitch_connect_failed"));
       setTwitchConnecting(false);
     }
   };
@@ -186,7 +196,7 @@ export default function ProfilePage() {
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-950 text-gray-100 font-sans flex items-center justify-center">
-        <h1 className="text-4xl font-bold text-white">Profil nicht gefunden oder nicht angemeldet.</h1>
+        <h1 className="text-4xl font-bold text-white">{t("not_found")}</h1>
         {loaderError && <p className="text-red-500 mt-4">{loaderError}</p>}
       </div>
     );
@@ -204,10 +214,10 @@ export default function ProfilePage() {
   // - hier nur ein zur Rolle passendes Label, damit die Erwartung schon vor
   // dem Klick stimmt.
   const statsLabel = user.is_superuser
-    ? "Statistiken (alle Teams)"
+    ? t("sidebar.stats_admin")
     : hasRole(user, ROLE_TEAM_MANAGER)
-    ? "Team-Statistiken"
-    : "Meine Statistiken";
+    ? t("sidebar.stats_team_manager")
+    : t("sidebar.stats_player");
 
   // Gleiche Rollen-Logik wie AdminNav (~/lib/adminNav.ts) - ein Spieler ohne
   // Rolle sieht hier folglich gar keine Verwaltungslinks.
@@ -217,12 +227,12 @@ export default function ProfilePage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans flex flex-col md:flex-row">
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-gray-800 p-6 shadow-lg flex-shrink-0">
-        <h2 className="text-2xl font-bold text-white mb-6">Mein Profil</h2>
+        <h2 className="text-2xl font-bold text-white mb-6">{t("sidebar.heading")}</h2>
         <nav>
           <ul>
             <li className="mb-4">
               <a href="/profile" className="block text-red-500 hover:text-red-400 font-semibold text-lg transition-colors duration-200">
-                Profil bearbeiten
+                {t("sidebar.edit_profile")}
               </a>
             </li>
             <li className="mb-4">
@@ -235,7 +245,7 @@ export default function ProfilePage() {
 
           {adminNavItems.length > 0 && (
             <>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-8 mb-3">Verwaltung</h3>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-8 mb-3">{t("sidebar.management")}</h3>
               <ul>
                 {adminNavItems.map((item) => (
                   <li key={item.key} className="mb-4">
@@ -253,7 +263,7 @@ export default function ProfilePage() {
       {/* Main Content */}
       <main className="flex-grow p-4 sm:p-8">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-4xl font-bold text-white mb-8">Willkommen, {user.username}!</h1>
+          <h1 className="text-4xl font-bold text-white mb-8">{t("welcome", { username: user.username })}</h1>
 
           {actionData?.error && (
             <div className="bg-red-800 text-white p-4 rounded-md mb-6 text-center">
@@ -267,18 +277,18 @@ export default function ProfilePage() {
           )}
           {searchParams.get("twitch_connected") && (
             <div className="bg-green-800 text-white p-4 rounded-md mb-6 text-center">
-              Twitch-Kanal erfolgreich verbunden.
+              {t("messages.twitch_connected")}
             </div>
           )}
           {searchParams.get("twitch_error") && (
             <div className="bg-red-800 text-white p-4 rounded-md mb-6 text-center">
-              Twitch-Verbindung fehlgeschlagen. Bitte erneut versuchen.
+              {t("messages.twitch_error")}
             </div>
           )}
 
           {/* Profile Picture Section */}
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl mb-8">
-            <h2 className="text-3xl font-bold text-white mb-6">Profilbild</h2>
+            <h2 className="text-3xl font-bold text-white mb-6">{t("picture.heading")}</h2>
             <div className="flex flex-col items-center md:flex-row md:items-start gap-8">
               <div className="flex-shrink-0">
                 <img
@@ -291,7 +301,7 @@ export default function ProfilePage() {
                 <Form method="post" encType="multipart/form-data" className="space-y-4">
                   <input type="hidden" name="_formType" value="profilePictureUpload" />
                   <div>
-                    <label htmlFor="profile_picture" className="block text-sm font-medium text-gray-300 mb-2">Neues Profilbild hochladen</label>
+                    <label htmlFor="profile_picture" className="block text-sm font-medium text-gray-300 mb-2">{t("picture.upload_label")}</label>
                     <input
                       id="profile_picture"
                       name="profile_picture"
@@ -311,7 +321,7 @@ export default function ProfilePage() {
                     className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                     disabled={isSubmitting}
                   >
-                    {isSubmitting ? "Wird hochgeladen..." : "Profilbild speichern"}
+                    {isSubmitting ? t("picture.uploading") : t("picture.save")}
                   </button>
                 </Form>
               </div>
@@ -320,12 +330,12 @@ export default function ProfilePage() {
 
           {/* Profile Details Section */}
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl">
-            <h2 className="text-3xl font-bold text-white mb-6">Profildetails bearbeiten</h2>
+            <h2 className="text-3xl font-bold text-white mb-6">{t("details.heading")}</h2>
             <Form method="post" className="space-y-6">
               <input type="hidden" name="_formType" value="profileUpdate" />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label htmlFor="username" className="block text-sm font-medium text-gray-300">Benutzername</label>
+                  <label htmlFor="username" className="block text-sm font-medium text-gray-300">{t("details.username_label")}</label>
                   <input
                     type="text"
                     id="username"
@@ -336,7 +346,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-300">E-Mail</label>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-300">{t("details.email_label")}</label>
                   <input
                     type="email"
                     id="email"
@@ -347,7 +357,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="first_name" className="block text-sm font-medium text-gray-300">Vorname</label>
+                  <label htmlFor="first_name" className="block text-sm font-medium text-gray-300">{t("details.first_name_label")}</label>
                   <input
                     type="text"
                     id="first_name"
@@ -357,7 +367,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="last_name" className="block text-sm font-medium text-gray-300">Nachname</label>
+                  <label htmlFor="last_name" className="block text-sm font-medium text-gray-300">{t("details.last_name_label")}</label>
                   <input
                     type="text"
                     id="last_name"
@@ -367,7 +377,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="steam_id" className="block text-sm font-medium text-gray-300">Steam ID</label>
+                  <label htmlFor="steam_id" className="block text-sm font-medium text-gray-300">{t("details.steam_id_label")}</label>
                   <input
                     type="text"
                     id="steam_id"
@@ -377,7 +387,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="game_profile_link" className="block text-sm font-medium text-gray-300">Game Profil Link</label>
+                  <label htmlFor="game_profile_link" className="block text-sm font-medium text-gray-300">{t("details.game_profile_link_label")}</label>
                   <input
                     type="url"
                     id="game_profile_link"
@@ -387,7 +397,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="twitter_link" className="block text-sm font-medium text-gray-300">Twitter Link</label>
+                  <label htmlFor="twitter_link" className="block text-sm font-medium text-gray-300">{t("details.twitter_link_label")}</label>
                   <input
                     type="url"
                     id="twitter_link"
@@ -397,7 +407,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="twitch_link" className="block text-sm font-medium text-gray-300">Twitch Link</label>
+                  <label htmlFor="twitch_link" className="block text-sm font-medium text-gray-300">{t("details.twitch_link_label")}</label>
                   <input
                     type="url"
                     id="twitch_link"
@@ -407,7 +417,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="youtube_link" className="block text-sm font-medium text-gray-300">YouTube Link</label>
+                  <label htmlFor="youtube_link" className="block text-sm font-medium text-gray-300">{t("details.youtube_link_label")}</label>
                   <input
                     type="url"
                     id="youtube_link"
@@ -417,7 +427,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="instagram_link" className="block text-sm font-medium text-gray-300">Instagram Link</label>
+                  <label htmlFor="instagram_link" className="block text-sm font-medium text-gray-300">{t("details.instagram_link_label")}</label>
                   <input
                     type="url"
                     id="instagram_link"
@@ -427,7 +437,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="tiktok_link" className="block text-sm font-medium text-gray-300">TikTok Link</label>
+                  <label htmlFor="tiktok_link" className="block text-sm font-medium text-gray-300">{t("details.tiktok_link_label")}</label>
                   <input
                     type="url"
                     id="tiktok_link"
@@ -442,17 +452,16 @@ export default function ProfilePage() {
                 className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Wird gespeichert..." : "Profil speichern"}
+                {isSubmitting ? t("details.saving") : t("details.save")}
               </button>
             </Form>
           </div>
 
           {/* Twitch-Verbindung für automatisierte Follower-Synchronisation */}
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
-            <h2 className="text-3xl font-bold text-white mb-2">Social-Media-Verbindungen</h2>
+            <h2 className="text-3xl font-bold text-white mb-2">{t("social.heading")}</h2>
             <p className="text-gray-400 text-sm mb-6">
-              Verbinde deinen Twitch-Kanal, damit deine Follower-Zahl automatisch für Sponsoren-Reportings
-              synchronisiert wird, statt dass ein Admin sie manuell pflegen muss.
+              {t("social.description")}
             </p>
             {twitchConnectError && (
               <div className="bg-red-800 text-white p-3 rounded-md mb-4 text-sm">{twitchConnectError}</div>
@@ -461,9 +470,9 @@ export default function ProfilePage() {
               <div>
                 <span className="text-white font-semibold">Twitch</span>
                 {user.twitch_connected ? (
-                  <span className="text-green-400 text-sm ml-2">Verbunden als {user.twitch_authorized_login}</span>
+                  <span className="text-green-400 text-sm ml-2">{t("social.connected_as", { login: user.twitch_authorized_login })}</span>
                 ) : (
-                  <span className="text-gray-500 text-sm ml-2">Nicht verbunden</span>
+                  <span className="text-gray-500 text-sm ml-2">{t("social.not_connected")}</span>
                 )}
                 {twitchChannel && (
                   <span className="ml-2">
@@ -484,7 +493,7 @@ export default function ProfilePage() {
                     disabled={isSubmitting}
                     className="py-2 px-4 rounded-md text-white text-sm font-semibold bg-gray-600 hover:bg-gray-500 disabled:opacity-50"
                   >
-                    Trennen
+                    {t("social.disconnect")}
                   </button>
                 </Form>
               ) : (
@@ -494,7 +503,7 @@ export default function ProfilePage() {
                   disabled={twitchConnecting}
                   className="py-2 px-4 rounded-md text-white text-sm font-semibold bg-red-600 hover:bg-red-700 disabled:opacity-50"
                 >
-                  {twitchConnecting ? "Weiterleitung..." : "Twitch verbinden"}
+                  {twitchConnecting ? t("social.redirecting") : t("social.connect")}
                 </button>
               )}
             </div>
@@ -504,12 +513,9 @@ export default function ProfilePage() {
               eintragen oder per Screenshot auslesen lassen, statt einen
               Admin zu bitten. */}
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
-            <h2 className="text-3xl font-bold text-white mb-2">Meine Reichweite</h2>
+            <h2 className="text-3xl font-bold text-white mb-2">{t("reach.heading")}</h2>
             <p className="text-gray-400 text-sm mb-6">
-              Für Twitter/X, Instagram und TikTok gibt es (noch) keine automatische Synchronisation. Trage deine
-              Zahlen selbst ein, oder lade einen Screenshot (z.B. deiner Profil- oder Beitrags-Insights) hoch - die
-              Werte werden lokal ausgelesen und als Vorschlag eingetragen, das Bild selbst wird dabei nirgends
-              gespeichert.
+              {t("reach.description")}
             </p>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {MANUAL_PLATFORMS.map(({ key, label }) => {

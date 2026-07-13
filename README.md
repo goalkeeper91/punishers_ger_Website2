@@ -37,7 +37,7 @@ Es gibt **keinen Django REST Framework Layer mehr** – die komplette API läuft
 ### Öffentliche Seite
 
 - **Home** – Hero-Sektion mit Video-Hintergrund (Produktionsmodus) bzw. animiertem CSS-Placeholder (Sample-Modus), automatisch rotierende Sponsoren-Showcase direkt unter dem Hero, Teams-/Creators-/Join-Us-/Kontakt-Sektionen. Zusätzlich ein schwebendes "Match-Highlight"-Widget unten rechts (nächstes/letztes Match, siehe unten).
-- **News** – öffentliche Artikelliste (`/news`) inkl. Detailseite (`/news/:slug`, nur `status=published`) mit Markdown-Rendering (react-markdown; Fett/Kursiv/Überschriften/Listen/Links/Zitate) und sauberen Klartext-Excerpts auf der Listenseite.
+- **News** – öffentliche Artikelliste (`/news`) inkl. Detailseite (`/news/:slug`, nur `status=published`) mit Markdown-Rendering (react-markdown; Fett/Kursiv/Überschriften/Listen/Links/Zitate) und sauberen Klartext-Excerpts auf der Listenseite. Artikel werden **automatisch übersetzt** (siehe unten) – Leser sehen die Sprache, in der sie gerade browsen.
 - **Teams** – Team-Übersicht mit vollständigem Roster (verknüpfte Spieler-/Nutzerprofile).
 - **Sponsoren** – Premium-/allgemeine Partnerliste, gespeist aus echten Backend-Daten; Klicks auf Logos/Website-Links werden gezählt.
 - **Content Creators** (`/creators`) – datengetriebene Liste der im Admin als Creator markierten Nutzer, inkl. Live-Badge + Direktlink zum Stream, wenn einer von ihnen gerade auf Twitch live ist (siehe unten). **Beitreten, Kontakt, Impressum, Datenschutz, Über uns** – statische Infoseiten.
@@ -45,6 +45,21 @@ Es gibt **keinen Django REST Framework Layer mehr** – die komplette API läuft
 - **Profil** (`/profile`, `/profile/:username`) – eigenes Profil bearbeiten (Name, Steam-ID, Social Links, Profilbild-Upload), öffentliches Profil einsehen.
 - Vollständig **responsive**: funktionierendes Mobile-Menü, Layout bricht nicht mehr bei mittleren Breiten um.
 - **Dev/Prod-Asset-Umschaltung** (`VITE_USE_SAMPLE_ASSETS`): im Sample-Modus werden überall offensichtliche Platzhalterbilder verwendet (voll browsbar ohne echte Assets); im Produktionsmodus greifen echte Bilder/Sponsoren, mit neutralem Fallback-Grafik statt kaputter Platzhalter.
+
+### Mehrsprachigkeit (Deutsch/Englisch)
+
+- Alle festen UI-Texte (Navigation, Buttons, Formulare, Fehlermeldungen, Impressum/Datenschutz, ...) liegen in Sprachdateien unter `frontend/app/i18n/locales/{de,en}/*.json` – **eine Datei pro Seite/Bereich**, damit mehrere Personen gleichzeitig an verschiedenen Seiten übersetzen können, ohne sich gegenseitig in einer riesigen Datei zu blockieren. Registriert werden alle Namespaces zentral in `frontend/app/i18n/config.ts` (`i18next`/`react-i18next`).
+- **Sprachauswahl per Cookie** (`lang=de|en`, Standard `de`), nicht `localStorage` – das Frontend ist server-seitig gerendert (`react-router.config.ts: ssr: true`), daher muss die Sprache schon im ersten server-gerenderten HTML stimmen, was ein Cookie (lesbar in `root.tsx`'s Loader über den `Cookie`-Request-Header) leistet, `localStorage` aber nicht (nicht verfügbar während SSR).
+- **DE/EN-Umschalter** im Header (Desktop + Mobile) setzt das Cookie und ruft `useRevalidator().revalidate()` auf – alle aktiven Loader laufen neu, ohne vollständigen Seiten-Reload.
+- Formular-Validierungsfehler in `action`/`clientAction`-Funktionen (die außerhalb des React-Renderbaums laufen, also keine Hooks nutzen können) werden über einen eigenen `translate(language, key, namespace)`-Helper in `frontend/app/i18n/config.ts` übersetzt statt über `useTranslation()`.
+- Aktuell vollständig übersetzt: alle öffentlichen Seiten, Auth-Flow (Login/Registrierung/Passwort-Reset), Profil, Statistiken. Der interne Verwaltungsbereich (`/admin/*`, nur für Admins/Teammanager) folgt als nächster Schritt mit demselben Muster.
+
+### Automatische News-Übersetzung (`backend/news/translation.py`)
+
+- Beim Erstellen/Bearbeiten eines Artikels (Titel oder Inhalt geändert) wird automatisch erkannt, in welcher Sprache er geschrieben wurde (`langdetect`, lokal, keine API), und für jede andere unterstützte Sprache eine `NewsArticleTranslation`-Zeile erzeugt/aktualisiert – **kostenlos und selbst gehostet über [LibreTranslate](https://libretranslate.com/)** (Docker-Service, siehe `docker-compose.yml`), passend zum bereits etablierten Muster dieses Projekts, bezahlte APIs zu vermeiden, solange die Organisation keine Sponsoreneinnahmen hat (vgl. lokales Tesseract-OCR statt einer bezahlten Vision-API).
+- `GET /news/` und `GET /news/{slug}/` akzeptieren einen optionalen `?lang=`-Query-Parameter; passt er nicht zur Originalsprache, wird die passende Übersetzung ausgeliefert (mit `is_machine_translated: true`, im Frontend als kleiner Hinweis-Badge sichtbar) – existiert noch keine (z.B. weil LibreTranslate beim Speichern nicht erreichbar war), wird automatisch auf das Original zurückgefallen, statt einen leeren Artikel zu zeigen. Das Frontend hängt automatisch die aktuell gewählte UI-Sprache an.
+- Admin-Editor (`/admin/news/:id/edit`) zeigt die erkannte Originalsprache an und hat einen "Neu übersetzen"-Button (`POST /admin/news/{id}/translate/`) für den Fall, dass der Übersetzungsdienst beim letzten Speichern nicht erreichbar war.
+- **`LIBRETRANSLATE_URL` nicht gesetzt → Übersetzung wird übersprungen, der Artikel speichert trotzdem ganz normal** (gleiches Graceful-Degradation-Muster wie bei FACEIT/Twitch/YouTube ohne Zugangsdaten).
 
 ### Auth (JWT)
 
@@ -185,12 +200,14 @@ Für Sponsoren-Reportings: aggregierte Reichweite (Follower/Abos) der Org-eigene
 ## Projektstruktur
 
 ```
+docker-compose.yml / Caddyfile / .env.example   Produktions-Stack (siehe "Produktion mit Docker")
+
 backend/
   punishers_ger/       Django-Settings, URLs, .env-Loading
   fastapi_app/main.py  Die komplette API (Auth, News, Teams, Sponsoren, Admin, ...)
   users/                CustomUser-Model (AbstractUser + eSport-Felder)
   teams/                Team- und Player-Models
-  news/                 NewsArticle-Model
+  news/                 NewsArticle-Model + translation.py (automatische Übersetzung via LibreTranslate)
   sponsors/             Sponsor- und SocialLink-Models (inkl. click_count)
   leagues/              League-Model (+ faceit_organizer_id)
   faceit_integration/   FACEIT-Sync: client.py, sync.py, scheduler.py, models.py
@@ -199,11 +216,15 @@ backend/
   audit_log/            AuditLogEntry-Modell - Protokoll aller admin-verändernden Aktionen
   media/                Hochgeladene Bilder (gitignored)
   .env / .env.example   Secrets & Konfiguration (.env ist gitignored)
+  Dockerfile / docker-entrypoint.sh   Produktions-Image (siehe "Produktion mit Docker")
 
 frontend/
   app/routes/           Öffentliche Seiten + admin/* Dashboard-Seiten
   app/routes/admin/      Dashboard, Users, News, Teams, Players, Sponsors
   app/components/        AdminNav, HeroBackground, SponsorRotation
+  app/i18n/
+    config.ts             i18next-Registry, Cookie-basierte Spracherkennung, translate()-Helper für Loader/Actions
+    locales/{de,en}/*.json  Eine Datei pro Seite/Bereich (siehe "Mehrsprachigkeit")
   app/lib/
     auth.ts              JWT-Session-Handling (authFetch, Token-Refresh)
     config.ts             API_BASE_URL / USE_SAMPLE_ASSETS aus Vite-Env
@@ -249,14 +270,36 @@ npm run dev
 
 Standardmäßig läuft der Vite-Dev-Server auf Port `5173`. `.env.development` ist bereits so konfiguriert, dass das Backend unter `http://localhost:8000` erwartet wird.
 
-### Produktions-Build (Frontend)
+## Produktion mit Docker
+
+Backend, Frontend, Datenbank, automatische HTTPS-Zertifikate und die News-Übersetzung laufen **komplett als Docker-Container** (`docker-compose.yml`, Repo-Root). Auf dem Zielserver muss dafür lediglich `.env` befüllt und `docker compose up -d` ausgeführt werden – sonst nichts.
 
 ```bash
-npm run build
-npm run start
+git clone <repo-url> && cd PunishersGer
+cp .env.example .env    # DOMAIN, POSTGRES_PASSWORD, DJANGO_SECRET_KEY, ... ausfüllen
+docker compose up -d
 ```
 
-`.env.production` sollte vor dem Deploy auf die echte Backend-URL zeigen (`VITE_API_BASE_URL`) und `VITE_USE_SAMPLE_ASSETS=false` gesetzt lassen, damit keine Platzhalterbilder in Produktion landen.
+Die fünf Services:
+
+| Service | Zweck |
+|---|---|
+| `db` | Postgres 16 (Volume-persistiert) |
+| `backend` | Django/FastAPI, migriert die DB automatisch beim Start (`backend/docker-entrypoint.sh`), optional automatischer erster Superuser (siehe `.env.example`) |
+| `libretranslate` | Selbst gehostete, kostenlose Übersetzungs-Engine für News-Artikel (nur intern erreichbar, kein eigener Port nach außen) |
+| `frontend` | React-Router-SSR-Server (`react-router-serve`) |
+| `caddy` | Reverse-Proxy + **automatische** Let's-Encrypt-Zertifikate (`DOMAIN=localhost` nutzt stattdessen automatisch ein selbstsigniertes Zertifikat für lokales Testen) |
+
+`Caddyfile` leitet alles unter `/api/*` an `backend` weiter (Prefix wird dabei entfernt, siehe `handle_path` – daher brauchen die FastAPI-Routen selbst keine Anpassung), alles andere an `frontend`. `VITE_API_BASE_URL=/api` (relativ, `frontend/.env.production`) sorgt dafür, dass **dasselbe gebaute Frontend-Image auf jeder Domain funktioniert**, ohne Neubau.
+
+**Wichtige Einschränkung:** `backend` darf nur mit **genau einer Replica** laufen (siehe `deploy.replicas: 1` in `docker-compose.yml`) – die beiden In-Prozess-Scheduler (FACEIT-Sync, Social-Stats-Sync, siehe `faceit_integration/scheduler.py` / `social_stats/scheduler.py`) sind nicht dafür ausgelegt, mehrfach parallel zu laufen.
+
+Ohne Docker lokal weiterentwickeln funktioniert weiterhin wie gewohnt (SQLite, kein LibreTranslate, kein Caddy) – siehe "Backend"/"Frontend" oben.
+
+```bash
+npm run build   # innerhalb frontend/, entspricht dem Docker-Build-Schritt
+npm run start
+```
 
 ## Environment-Variablen
 
@@ -287,13 +330,16 @@ npm run start
 | `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | SMTP-Zugangsdaten (z. B. Gmail-Adresse + App-Passwort, oder ein kostenloser Anbieter wie Brevo) | leer |
 | `EMAIL_USE_TLS` | TLS beim SMTP-Versand verwenden | `true` |
 | `DEFAULT_FROM_EMAIL` | Absenderadresse | `Punishers Germany <no-reply@punishers.gg>` |
+| `LIBRETRANSLATE_URL` | Basis-URL einer LibreTranslate-Instanz für automatische News-Übersetzung (`news/translation.py`) | leer (Übersetzung wird übersprungen, Artikel speichert trotzdem) |
 
 **`frontend/.env.development` / `.env.production`** (siehe `frontend/.env.example`):
 
 | Variable | Bedeutung | Default (dev) |
 |---|---|---|
-| `VITE_API_BASE_URL` | Backend-URL | `http://localhost:8000` |
+| `VITE_API_BASE_URL` | Backend-URL | `http://localhost:8000` (dev) / `/api` (Produktion, siehe `.env.production` – relativ, damit dasselbe Docker-Image auf jeder Domain läuft) |
 | `VITE_USE_SAMPLE_ASSETS` | Placeholder- vs. Produktionsbilder | `true` |
+
+**Root-`.env`** (nur für den Docker-Compose-Produktivbetrieb, siehe `.env.example`): `DOMAIN`, `ACME_EMAIL`, `POSTGRES_DB`/`POSTGRES_USER`/`POSTGRES_PASSWORD`, `DJANGO_SECRET_KEY`, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, optionale `DJANGO_SUPERUSER_*` für den automatischen ersten Admin-Account, plus dieselben optionalen Integrations-Keys wie oben (werden 1:1 in den `backend`-Container durchgereicht, siehe `docker-compose.yml`).
 
 ## API-Referenz (Auszug)
 

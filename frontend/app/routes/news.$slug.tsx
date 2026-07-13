@@ -1,8 +1,10 @@
 import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import ReactMarkdown from "react-markdown";
+import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
+import { getLanguageFromCookieHeader } from "~/i18n/config";
 
 interface NewsArticle {
   id: number;
@@ -14,10 +16,13 @@ interface NewsArticle {
   published_date: string;
   updated_date: string;
   status: string;
+  original_language: string;
+  is_machine_translated: boolean;
 }
 
-export const loader: LoaderFunction = async ({ params }) => {
-  const response = await fetch(`${API_BASE_URL}/news/${params.slug}/`);
+export const loader: LoaderFunction = async ({ params, request }) => {
+  const language = getLanguageFromCookieHeader(request.headers.get("Cookie"));
+  const response = await fetch(`${API_BASE_URL}/news/${params.slug}/?lang=${language}`);
   if (!response.ok) {
     throw new Response("Artikel nicht gefunden", { status: response.status === 404 ? 404 : 500 });
   }
@@ -25,12 +30,13 @@ export const loader: LoaderFunction = async ({ params }) => {
   return { article };
 };
 
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString("de-DE", { year: "numeric", month: "long", day: "numeric" });
+function formatDate(dateString: string, language: string): string {
+  return new Date(dateString).toLocaleDateString(language === "en" ? "en-US" : "de-DE", { year: "numeric", month: "long", day: "numeric" });
 }
 
 export default function NewsDetailPage() {
   const { article } = useLoaderData() as { article: NewsArticle };
+  const { t, i18n } = useTranslation("news");
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
@@ -42,10 +48,15 @@ export default function NewsDetailPage() {
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <p className="text-sm text-gray-300 mb-3">
-              {formatDate(article.published_date)}
+              {formatDate(article.published_date, i18n.language)}
               {article.author_name && ` · ${article.author_name}`}
             </p>
             <h1 className="text-4xl md:text-5xl font-extrabold text-white max-w-3xl mx-auto">{article.title}</h1>
+            {article.is_machine_translated && (
+              <span className="inline-block mt-3 text-xs uppercase tracking-wide bg-gray-700/80 text-gray-300 px-3 py-1 rounded-full">
+                {t("detail.machine_translated")}
+              </span>
+            )}
           </div>
         </section>
 
@@ -74,7 +85,7 @@ export default function NewsDetailPage() {
             </ReactMarkdown>
 
             <a href="/news" className="inline-block mt-8 text-red-500 hover:text-red-400 transition-colors duration-300">
-              ← Zurück zu News
+              ← {t("detail.back_to_news")}
             </a>
           </div>
         </article>
