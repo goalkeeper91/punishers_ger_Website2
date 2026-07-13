@@ -1,0 +1,85 @@
+name: Deploy Punishers Germany
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: 📦 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔑 Set up SSH Agent
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: 🌐 Add Server to Known Hosts
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      #########################################
+      # SYNC REPO TO SERVER
+      #########################################
+      - name: 📂 Sync Repository
+        run: |
+          # docker-compose.yml builds backend/frontend from their own
+          # Dockerfiles directly from source (unlike WebsiteJava, whose
+          # frontend is a static build served by nginx) - so there's no
+          # separate "build in CI" step, just get the source onto the
+          # server. .env is never touched (server keeps its own), .git is
+          # irrelevant on the server. --delete is safe: media/static files
+          # live in named Docker volumes (media_data/staticfiles_data), not
+          # bind-mounted from this synced source tree.
+          ssh -o StrictHostKeyChecking=yes ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "mkdir -p ~/punishers-app"
+
+          rsync -av --delete \
+            --exclude '.git' \
+            --exclude '.env' \
+            -e "ssh -o StrictHostKeyChecking=yes" \
+            ./ \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/punishers-app/
+
+          echo "✅ Repository synced zu ~/punishers-app/"
+
+      #########################################
+      # APPLY DOCKER COMPOSE (BUILD + RESTART)
+      #########################################
+      - name: 🚀 Apply Docker Compose (Build + Restart)
+        run: |
+          ssh -o StrictHostKeyChecking=yes ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "cd ~/punishers-app && docker compose -f docker-compose.yml up -d --build"
+
+          echo "✅ Container gebaut und neu gestartet"
+
+      #########################################
+      # SUCCESS
+      #########################################
+      - name: ✅ Deployment abgeschlossen
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ DEPLOYMENT ABGESCHLOSSEN"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📦 Deployed UND angewendet (docker compose up -d --build):"
+          echo "  ✅ backend/   (Django/FastAPI, migriert automatisch beim Start)"
+          echo "  ✅ frontend/  (React-Router-SSR)"
+          echo "  ✅ docker-compose.yml"
+          echo ""
+          echo "⚠️  NICHT deployed (bleiben unverändert):"
+          echo "  ✅ .env auf dem Server (Original bleibt!)"
+          echo "  ✅ media_data/staticfiles_data/postgres_data/libretranslate_data (Docker-Volumes)"
+          echo ""
+          echo "Voraussetzung für's allererste Deployment: DNS + Zertifikat +"
+          echo "punishersgermany.conf + Server-.env sind bereits per Runbook"
+          echo "(README.md \"Produktion mit Docker\") eingerichtet."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
