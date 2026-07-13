@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional
 import os
 import django
@@ -310,15 +310,21 @@ class PasswordResetConfirm(BaseModel):
     new_password: str
 
 class UserProfileUpdate(BaseModel):
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    steam_id: Optional[str] = None
-    game_profile_link: Optional[str] = None
-    twitter_link: Optional[str] = None
-    twitch_link: Optional[str] = None
-    youtube_link: Optional[str] = None
-    instagram_link: Optional[str] = None
-    tiktok_link: Optional[str] = None
+    # max_length values mirror the CharField/URLField columns in
+    # users/models.py exactly - without these, an over-length value (e.g. a
+    # full profile URL pasted into steam_id, CharField(max_length=17)) hits
+    # an unhandled django.db.utils.DataError at save time instead of a clean
+    # validation error, surfacing to the frontend as a raw, non-JSON
+    # "Internal Server Error" response.
+    first_name: Optional[str] = Field(None, max_length=150)
+    last_name: Optional[str] = Field(None, max_length=150)
+    steam_id: Optional[str] = Field(None, max_length=17)
+    game_profile_link: Optional[str] = Field(None, max_length=200)
+    twitter_link: Optional[str] = Field(None, max_length=200)
+    twitch_link: Optional[str] = Field(None, max_length=200)
+    youtube_link: Optional[str] = Field(None, max_length=200)
+    instagram_link: Optional[str] = Field(None, max_length=200)
+    tiktok_link: Optional[str] = Field(None, max_length=200)
 
 class TokenPair(BaseModel):
     access_token: str
