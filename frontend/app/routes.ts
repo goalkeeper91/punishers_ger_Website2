@@ -16,6 +16,8 @@ export default [
   route("/login", "routes/login.tsx"),      // New login route
   route("/register", "routes/register.tsx"), // New register route
   route("/register-success", "routes/register-success.tsx"), // New register success route
+  route("/forgot-password", "routes/forgot-password.tsx"), // Request a password-reset email
+  route("/reset-password", "routes/reset-password.tsx"), // Set a new password from the emailed link
   route("/profile", "routes/profile/index.tsx"),   // Route for logged-in user's profile
   route("/profile/:username", "routes/profile.$username.tsx"), // Route for public profiles
   route("/stats", "routes/stats.tsx"), // Stats dashboard: role-scoped (Admin/Teammanager/Player)

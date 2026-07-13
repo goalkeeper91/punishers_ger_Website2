@@ -54,6 +54,13 @@ Es gibt **keinen Django REST Framework Layer mehr** – die komplette API läuft
 - Alle geschützten Endpunkte erwarten `Authorization: Bearer <access_token>`.
 - Frontend-seitig übernimmt `frontend/app/lib/auth.ts` (`authFetch`) automatisches Anhängen des Tokens und einmaliges Refreshen bei 401.
 
+### E-Mail-Benachrichtigungen (`backend/users/emails.py`)
+
+- **Konto aktiviert**: Wenn ein Admin einen Nutzer über `PUT /users/{id}/activate/` freischaltet, verschickt der Endpunkt automatisch eine E-Mail ("Dein Konto wurde aktiviert" mit Login-Link) – nur beim Übergang inaktiv → aktiv, nicht bei jedem Speichern.
+- **Passwort zurücksetzen** (`POST /password-reset/request/`, `POST /password-reset/confirm/`, Frontend `/forgot-password` + `/reset-password`): Die Anfrage liefert immer dieselbe generische Antwort, unabhängig davon, ob die E-Mail-Adresse existiert (kein Enumerieren von Konten). Der Reset-Link ist ein signiertes JWT (`type=password_reset`, Standard 30 Min gültig) nach demselben Muster wie der Twitch-OAuth-`state`-Parameter – es gibt dafür bewusst **keine eigene DB-Tabelle**: Das Token enthält einen kurzen Fingerabdruck des aktuellen Passwort-Hashes, der sich beim Zurücksetzen automatisch ändert, wodurch der Link danach (oder nach jeder anderen Passwortänderung) von selbst ungültig wird.
+- Templates liegen unter `backend/users/templates/emails/` (HTML + Text-Variante je Mail, gemeinsames `base_email.html`-Layout).
+- **Kein E-Mail-Anbieter konfiguriert (`EMAIL_HOST` leer) → Mails werden nur in die Server-Konsole geloggt, nichts wird tatsächlich verschickt.** Das ist der Standard in der Entwicklung und erfordert keine Zugangsdaten. Für echten Versand `EMAIL_HOST`/`EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` setzen (siehe Environment-Variablen) – funktioniert mit jedem SMTP-Anbieter, z. B. einem Gmail-Konto mit App-Passwort oder dem kostenlosen Brevo-Tarif (300 Mails/Tag), da die Organisation aktuell keine Sponsoreneinnahmen hat.
+
 ### Admin-Dashboard (Frontend `/admin/*`, erfordert mindestens eine passende Rolle/Permission)
 
 Welche Bereiche sichtbar sind, entscheidet `~/lib/adminNav.ts` (gemeinsam genutzt von `AdminNav` und der Profil-Sidebar) anhand von Rolle **und** den unten beschriebenen Permissions – nicht mehr pauschal "Admin oder eine feste Rolle".
@@ -268,6 +275,12 @@ npm run start
 | `TWITCH_CLIENT_SECRET` | App-Client-Secret dazu | leer |
 | `YOUTUBE_API_KEY` | API-Key von [console.cloud.google.com](https://console.cloud.google.com/apis/credentials) (YouTube Data API v3 aktivieren) | leer (Social-Stats-Sync überspringt YouTube dann) |
 | `SOCIAL_STATS_SYNC_INTERVAL_MINUTES` | Intervall des In-Prozess-Schedulers für Social-Media-Reichweite; `0` deaktiviert ihn | `360` |
+| `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES` | Gültigkeit eines Passwort-Reset-Links | `30` |
+| `EMAIL_HOST` | SMTP-Server für E-Mail-Versand (Aktivierungs-/Passwort-Reset-Mails) | leer (Mails landen dann nur in der Server-Konsole, es wird nichts verschickt) |
+| `EMAIL_PORT` | SMTP-Port | `587` |
+| `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | SMTP-Zugangsdaten (z. B. Gmail-Adresse + App-Passwort, oder ein kostenloser Anbieter wie Brevo) | leer |
+| `EMAIL_USE_TLS` | TLS beim SMTP-Versand verwenden | `true` |
+| `DEFAULT_FROM_EMAIL` | Absenderadresse | `Punishers Germany <no-reply@punishers.gg>` |
 
 **`frontend/.env.development` / `.env.production`** (siehe `frontend/.env.example`):
 

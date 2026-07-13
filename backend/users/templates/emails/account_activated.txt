@@ -1,0 +1,8 @@
+Willkommen, {{ username }}!
+
+Dein Konto bei Punishers Germany wurde soeben von einem Administrator freigeschaltet. Du kannst dich ab sofort anmelden:
+
+{{ login_url }}
+
+--
+Diese E-Mail wurde automatisch von Punishers Germany verschickt.

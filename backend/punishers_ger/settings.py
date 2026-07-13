@@ -72,6 +72,28 @@ JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 JWT_REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "30"))
 
+# Password-reset links (see users/emails.py) expire after this long.
+PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = int(os.environ.get("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30"))
+
+# Transactional email (account-activated / password-reset notifications, see
+# users/emails.py). No EMAIL_HOST configured -> falls back to Django's
+# console backend, which just prints the email to the server log - same
+# graceful-degradation approach as the missing-credentials handling for
+# Twitch/YouTube, so local dev works with zero setup. Any free SMTP provider
+# (a Gmail account with an App Password, Brevo's free tier, ...) works here,
+# since the org has no paid mail service yet.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Punishers Germany <no-reply@punishers.gg>")
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend"
+)
+
 # FACEIT Data API v4 (see faceit_integration/). Server-side API key from
 # https://developers.faceit.com/ - required for any sync to actually run.
 FACEIT_API_KEY = os.environ.get("FACEIT_API_KEY") or None

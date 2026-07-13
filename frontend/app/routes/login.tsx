@@ -123,7 +123,7 @@ export default function LoginPage() {
 
           <div className="flex items-center justify-between">
             <div className="text-sm">
-              <a href="#" className="font-medium text-red-600 hover:text-red-500">
+              <a href="/forgot-password" className="font-medium text-red-600 hover:text-red-500">
                 Passwort vergessen?
               </a>
             </div>

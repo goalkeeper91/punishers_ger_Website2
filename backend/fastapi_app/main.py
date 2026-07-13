@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+import hashlib
 
 import logging
 
@@ -22,6 +23,7 @@ django.setup()
 from news.models import NewsArticle
 from teams.models import Team, Player
 from users.models import CustomUser, ROLE_TEAM_MANAGER, ROLE_AUTHOR
+from users.emails import send_account_activated_email, send_password_reset_email
 from sponsors.models import Sponsor, SocialLink
 from faceit_integration import sync as faceit_sync
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
@@ -228,6 +230,13 @@ class UserLogin(BaseModel):
 
 class UserActivation(BaseModel):
     is_active: bool
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
 
 class UserProfileUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -584,6 +593,45 @@ def _decode_token(token: str, expected_type: str) -> int:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
 
 
+PASSWORD_RESET_TOKEN_TYPE = "password_reset"
+
+
+def _create_password_reset_token(user: CustomUser) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user.id),
+        "type": PASSWORD_RESET_TOKEN_TYPE,
+        # A fingerprint of the current password hash, not the hash itself.
+        # Resetting the password (or requesting a fresh link) changes this,
+        # so the token is single-use without needing a DB table for it.
+        "pwd_fp": hashlib.sha256(user.password.encode()).hexdigest()[:16],
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def _decode_password_reset_token(token: str) -> CustomUser:
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Der Link ist abgelaufen. Bitte fordere einen neuen an.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiger Link.")
+
+    if payload.get("type") != PASSWORD_RESET_TOKEN_TYPE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiger Link.")
+    try:
+        user = CustomUser.objects.get(id=int(payload["sub"]))
+    except (CustomUser.DoesNotExist, KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiger Link.")
+
+    current_fp = hashlib.sha256(user.password.encode()).hexdigest()[:16]
+    if payload.get("pwd_fp") != current_fp:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Dieser Link wurde bereits verwendet oder ist nicht mehr gültig.")
+    return user
+
+
 async def issue_token_pair(user: CustomUser) -> TokenPair:
     return TokenPair(
         access_token=create_access_token(user.id),
@@ -762,6 +810,28 @@ async def login_user(user_data: UserLogin):
 
     return await issue_token_pair(user)
 
+@app.post("/password-reset/request/")
+async def request_password_reset(body: PasswordResetRequest):
+    user = await sync_to_async(CustomUser.objects.filter(email=body.email).first)()
+    if user is not None and user.is_active:
+        token = _create_password_reset_token(user)
+        reset_url = f"{settings.FRONTEND_BASE_URL}/reset-password?token={token}"
+        await sync_to_async(send_password_reset_email)(user, reset_url)
+
+    # Same response whether or not the address is registered, so this
+    # endpoint can't be used to enumerate valid accounts.
+    return {"detail": "Falls ein Konto mit dieser E-Mail-Adresse existiert, haben wir einen Link zum Zurücksetzen des Passworts gesendet."}
+
+@app.post("/password-reset/confirm/")
+async def confirm_password_reset(body: PasswordResetConfirm):
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passwort muss mindestens 6 Zeichen lang sein.")
+
+    user = await sync_to_async(_decode_password_reset_token)(body.token)
+    user.password = await sync_to_async(make_password)(body.new_password)
+    await sync_to_async(user.save)(update_fields=["password"])
+    return {"detail": "Passwort erfolgreich zurückgesetzt."}
+
 @app.post("/token/refresh/", response_model=AccessToken)
 async def refresh_access_token(body: RefreshRequest):
     user_id = _decode_token(body.refresh_token, "refresh")
@@ -831,11 +901,15 @@ async def activate_user(
     except CustomUser.DoesNotExist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    was_inactive = not user.is_active
     user.is_active = activation_data.is_active
     await sync_to_async(user.save)(update_fields=['is_active'])
     await sync_to_async(_log_action)(
         current_admin, "activate" if activation_data.is_active else "deactivate", "CustomUser", user.id, user.username,
     )
+
+    if was_inactive and user.is_active:
+        await sync_to_async(send_account_activated_email)(user)
 
     return await build_user_schema(user)
 
