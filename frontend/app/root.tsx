@@ -15,6 +15,7 @@ import { useState, useEffect, useRef } from "react"; // Import useState and useE
 import type { Route } from "./+types/root";
 import "./app.css";
 import { authFetch, isLoggedIn, clearTokens, type AuthUser } from "~/lib/auth";
+import { getAdminNavItems } from "~/lib/adminNav";
 import {
   fetchActiveSponsors,
   fetchActiveSocialLinks,
@@ -128,6 +129,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
     navigate("/"); // Redirect to home page after logout
   };
 
+  // Same role-aware list AdminNav.tsx and the Profile sidebar use, so
+  // Verwaltungsrouten are reachable from every page, not just /profile.
+  const adminNavItems = getAdminNavItems(loggedInUser);
+
   return (
     <html lang="en">
       <head>
@@ -185,6 +190,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       <a href="/stats" className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors duration-200">
                         Statistiken
                       </a>
+                      {adminNavItems.length > 0 && (
+                        <>
+                          <div className="border-t border-gray-700 my-1" />
+                          <p className="px-4 pt-1 pb-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                            Verwaltung
+                          </p>
+                          {adminNavItems.map((item) => (
+                            <a
+                              key={item.key}
+                              href={item.href}
+                              className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors duration-200"
+                            >
+                              {item.label}
+                            </a>
+                          ))}
+                        </>
+                      )}
+                      <div className="border-t border-gray-700 my-1" />
                       <button
                         onClick={handleLogout}
                         className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors duration-200 cursor-pointer"
@@ -244,6 +267,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       <a href="/stats" className="block py-2 pl-10 text-gray-300 hover:text-red-600 transition-colors duration-300">
                         Statistiken
                       </a>
+                      {adminNavItems.length > 0 && (
+                        <div className="pl-10 space-y-1">
+                          <p className="pt-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                            Verwaltung
+                          </p>
+                          {adminNavItems.map((item) => (
+                            <a
+                              key={item.key}
+                              href={item.href}
+                              className="block py-1.5 text-gray-300 hover:text-red-600 transition-colors duration-300"
+                            >
+                              {item.label}
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       <button onClick={handleLogout} className="block w-full text-left py-2 pl-10 text-gray-300 hover:text-red-600 transition-colors duration-300 cursor-pointer">
                         Logout
                       </button>
