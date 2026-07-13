@@ -268,7 +268,7 @@ function SiteChrome({
       <header className="bg-gray-900 shadow-lg sticky top-0 z-50 relative">
         <nav className="container mx-auto px-4 h-[72px] flex justify-between items-center">
           <a href="/" className="flex items-center space-x-2 min-w-0">
-            <img src="/public/PUNISHERS_LOGO.png" alt="Punishers Germany Logo" className="h-10 flex-shrink-0" />
+            <img src="/PUNISHERS_LOGO.png" alt="Punishers Germany Logo" className="h-10 flex-shrink-0" />
             <span className="text-xl md:text-2xl font-bold text-white truncate hidden sm:inline">Punishers Germany</span>
           </a>
           <ul className="hidden lg:flex space-x-6 items-center">
@@ -465,7 +465,7 @@ function SiteChrome({
         <div className="container mx-auto px-4 text-center md:text-left">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="flex flex-col items-center md:items-start">
-              <img src="/public/PUNISHERS_LOGO.png" alt="Punishers Germany Logo" className="h-12 mb-4" />
+              <img src="/PUNISHERS_LOGO.png" alt="Punishers Germany Logo" className="h-12 mb-4" />
               <p className="text-gray-400">{t("footer.tagline")}</p>
             </div>
             <div>
