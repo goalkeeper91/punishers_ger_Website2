@@ -5,6 +5,7 @@ import HeroBackground from "~/components/HeroBackground";
 import SponsorRotation from "~/components/SponsorRotation";
 import MatchHighlightWidget from "~/components/MatchHighlightWidget";
 import { fetchActiveSponsors, fetchMatchHighlights, type Sponsor, type MatchHighlight } from "~/lib/publicContent";
+import { fetchHeroVideoUrl } from "~/lib/siteSettings";
 
 export const meta: MetaFunction = () => {
   return [
@@ -14,15 +15,20 @@ export const meta: MetaFunction = () => {
 };
 
 export const loader: LoaderFunction = async () => {
-  const [sponsors, matchHighlights] = await Promise.all([
+  const [sponsors, matchHighlights, heroVideoUrl] = await Promise.all([
     fetchActiveSponsors(),
     fetchMatchHighlights(),
+    fetchHeroVideoUrl(),
   ]);
-  return { sponsors, matchHighlights };
+  return { sponsors, matchHighlights, heroVideoUrl };
 };
 
 export default function Home() {
-  const { sponsors, matchHighlights } = useLoaderData() as { sponsors: Sponsor[]; matchHighlights: MatchHighlight[] };
+  const { sponsors, matchHighlights, heroVideoUrl } = useLoaderData() as {
+    sponsors: Sponsor[];
+    matchHighlights: MatchHighlight[];
+    heroVideoUrl: string | null;
+  };
   const { t } = useTranslation("home");
 
   return (
@@ -32,7 +38,7 @@ export default function Home() {
       <main>
         {/* Hero Section */}
         <section id="home" className="relative min-h-[85vh] md:min-h-[90vh] flex items-center justify-center text-center overflow-hidden">
-          <HeroBackground posterUrl="https://via.placeholder.com/1920x1080?text=Esport+Arena+Background" />
+          <HeroBackground posterUrl="https://via.placeholder.com/1920x1080?text=Esport+Arena+Background" videoUrl={heroVideoUrl} />
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 p-6 sm:p-8 max-w-4xl mx-auto">
             <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold text-white leading-tight mb-4">{t("hero.title")}</h1>

@@ -32,5 +32,6 @@ export default [
   route("/admin/players/:id/edit", "routes/admin/players.$id.edit.tsx"), // Admin: edit a single player
   route("/admin/sponsors", "routes/admin/sponsors.tsx"), // Admin sponsors & social links
   route("/admin/social-stats", "routes/admin/social-stats.tsx"), // Admin: social media reach (org/players/teams)
+  route("/admin/site-settings", "routes/admin/site-settings.tsx"), // Admin: hero video + per-page background images
   route("/admin/audit-log", "routes/admin/audit-log.tsx"), // Admin audit log (superuser-only)
 ] satisfies RouteConfig;

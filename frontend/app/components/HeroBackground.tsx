@@ -1,27 +1,23 @@
-import { USE_SAMPLE_ASSETS } from "~/lib/config";
-
 /**
  * Background layer for the hero section. The poster image is always the
  * base layer (so there's never a blank background), with extra motion on
  * top of it:
- * - Sample mode: an animated CSS pulse/scanline effect (no real video asset
- *   exists yet, but it should still look intentional).
- * - Production mode: a real <video>, hidden on small screens and for
- *   prefers-reduced-motion so the poster image is used instead. Drop a real
- *   esports montage at public/videos/hero-background.mp4 to activate it.
+ * - No hero video uploaded yet (or sample mode): an animated CSS
+ *   pulse/scanline effect, so it still looks intentional rather than blank.
+ * - Once an admin uploads a hero video (see /admin/site-settings): a real
+ *   <video>, hidden on small screens and for prefers-reduced-motion so the
+ *   poster image is used instead.
  */
 export default function HeroBackground({
   posterUrl,
-  videoSrc = "/videos/hero-background.mp4",
+  videoUrl,
 }: {
   posterUrl: string;
-  videoSrc?: string;
+  videoUrl?: string | null;
 }) {
   return (
     <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${posterUrl}')` }} aria-hidden="true">
-      {USE_SAMPLE_ASSETS ? (
-        <div className="absolute inset-0 hero-scanlines motion-safe:animate-hero-scan" />
-      ) : (
+      {videoUrl ? (
         <video
           className="absolute inset-0 w-full h-full object-cover hidden sm:block motion-reduce:hidden"
           autoPlay
@@ -30,8 +26,10 @@ export default function HeroBackground({
           playsInline
           poster={posterUrl}
         >
-          <source src={videoSrc} type="video/mp4" />
+          <source src={videoUrl} />
         </video>
+      ) : (
+        <div className="absolute inset-0 hero-scanlines motion-safe:animate-hero-scan" />
       )}
     </div>
   );

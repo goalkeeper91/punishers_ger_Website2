@@ -5,6 +5,7 @@ import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
 import { stripMarkdown } from "~/lib/markdown";
 import { getLanguageFromCookieHeader } from "~/i18n/config";
+import { fetchPageBackground } from "~/lib/siteSettings";
 
 // import type { MetaFunction } from "@react-router/node"; // Removed Remix-specific MetaFunction
 
@@ -35,6 +36,7 @@ interface NewsArticle {
 // translation exists yet.
 export const loader: LoaderFunction = async ({ request }) => {
   const language = getLanguageFromCookieHeader(request.headers.get("Cookie"));
+  const backgroundUrl = await fetchPageBackground("news");
   try {
     // Fetch data from your FastAPI backend
     const response = await fetch(`${API_BASE_URL}/news/?lang=${language}`);
@@ -45,16 +47,16 @@ export const loader: LoaderFunction = async ({ request }) => {
 
     // For simplicity, let's just return all articles for now.
     // You can later implement logic to separate latest news from archive.
-    return { newsArticles };
+    return { newsArticles, backgroundUrl };
   } catch (error) {
     console.error("Failed to fetch news articles:", error);
     // Return an empty array if fetching fails
-    return { newsArticles: [] };
+    return { newsArticles: [], backgroundUrl };
   }
 };
 
 export default function NewsPage() {
-  const { newsArticles } = useLoaderData() as { newsArticles: NewsArticle[] }; // Type assertion for useLoaderData
+  const { newsArticles, backgroundUrl } = useLoaderData() as { newsArticles: NewsArticle[]; backgroundUrl: string | null };
   const { t, i18n } = useTranslation("news");
 
   // Simple logic to separate latest news (e.g., first 2) and archive
@@ -70,7 +72,7 @@ export default function NewsPage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
         {/* Hero Section for News */}
-        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=News+Banner')" }}>
+        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || "https://via.placeholder.com/1920x400?text=News+Banner"}')` }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>

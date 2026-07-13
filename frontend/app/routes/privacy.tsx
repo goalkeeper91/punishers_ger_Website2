@@ -7,16 +7,25 @@
 //   ];
 // };
 
+import type { LoaderFunction } from "react-router";
+import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
+import { fetchPageBackground } from "~/lib/siteSettings";
+
+export const loader: LoaderFunction = async () => {
+  const backgroundUrl = await fetchPageBackground("privacy");
+  return { backgroundUrl };
+};
 
 export default function PrivacyPage() {
+  const { backgroundUrl } = useLoaderData() as { backgroundUrl: string | null };
   const { t } = useTranslation("privacy");
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
         {/* Hero Section for Privacy Policy */}
-        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=Privacy+Policy+Banner')" }}>
+        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || "https://via.placeholder.com/1920x400?text=Privacy+Policy+Banner"}')` }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>

@@ -3,6 +3,7 @@ import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
+import { fetchPageBackground } from "~/lib/siteSettings";
 
 // Removed Remix-specific MetaFunction
 // export const meta: MetaFunction = () => {
@@ -42,6 +43,7 @@ interface Team {
 }
 
 export const loader: LoaderFunction = async () => {
+  const backgroundUrl = await fetchPageBackground("teams");
   try {
     const response = await fetch(`${API_BASE_URL}/teams/`);
     if (!response.ok) {
@@ -53,15 +55,15 @@ export const loader: LoaderFunction = async () => {
     const mainTeams = teams.filter(team => team.is_main_team);
     const otherTeams = teams.filter(team => !team.is_main_team);
 
-    return { mainTeams, otherTeams };
+    return { mainTeams, otherTeams, backgroundUrl };
   } catch (error) {
     console.error("Failed to fetch teams:", error);
-    return { mainTeams: [], otherTeams: [] };
+    return { mainTeams: [], otherTeams: [], backgroundUrl };
   }
 };
 
 export default function TeamsPage() {
-  const { mainTeams, otherTeams } = useLoaderData() as { mainTeams: Team[], otherTeams: Team[] };
+  const { mainTeams, otherTeams, backgroundUrl } = useLoaderData() as { mainTeams: Team[], otherTeams: Team[], backgroundUrl: string | null };
   const { t } = useTranslation("teams");
 
   const games = [t("filter.all_games"), "Counter-Strike 2", "Valorant", "League of Legends", "Rocket League", "Rainbow Six Siege"]; // Game titles are proper nouns, not translated
@@ -70,7 +72,7 @@ export default function TeamsPage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
         {/* Hero Section for Teams */}
-        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=Teams+Banner')" }}>
+        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || "https://via.placeholder.com/1920x400?text=Teams+Banner"}')` }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>

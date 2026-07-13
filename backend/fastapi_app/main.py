@@ -27,6 +27,7 @@ from teams.models import Team, Player
 from users.models import CustomUser, ROLE_TEAM_MANAGER, ROLE_AUTHOR
 from users.emails import send_account_activated_email, send_password_reset_email
 from sponsors.models import Sponsor, SocialLink
+from site_settings.models import SiteSettings, PageBackground
 from faceit_integration import sync as faceit_sync
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
 from faceit_integration.scheduler import start_scheduler, stop_scheduler
@@ -81,6 +82,47 @@ async def save_uploaded_image(file: UploadFile, directory: str, filename_base: s
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Datei zu groß (max. {MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)} MB).",
+        )
+
+    await sync_to_async(os.makedirs)(directory, exist_ok=True)
+    file_name = f"{filename_base}{extension}"
+    file_path = os.path.join(directory, file_name)
+
+    def _write():
+        with open(file_path, "wb") as buffer:
+            buffer.write(content)
+
+    try:
+        await sync_to_async(_write)()
+    finally:
+        await file.close()
+
+    return file_name
+
+ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".webm"}
+MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
+
+async def save_uploaded_video(file: UploadFile, directory: str, filename_base: str) -> str:
+    """Same validation/write shape as save_uploaded_image() above, sized for
+    the hero background video instead of a thumbnail-sized image (100MB cap,
+    .mp4/.webm only). nginx's client_max_body_size must independently allow
+    a request this large, or it never reaches this code at all."""
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in ALLOWED_VIDEO_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Nicht unterstütztes Dateiformat. Erlaubt: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}",
+        )
+    if file.content_type and not file.content_type.startswith("video/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Datei ist kein Video.")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Datei ist leer.")
+    if len(content) > MAX_VIDEO_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Datei zu groß (max. {MAX_VIDEO_SIZE_BYTES // (1024 * 1024)} MB).",
         )
 
     await sync_to_async(os.makedirs)(directory, exist_ok=True)
@@ -406,6 +448,15 @@ class SponsorUpdate(BaseModel):
     tier: Optional[str] = None
     is_active: Optional[bool] = None
     order: Optional[int] = None
+
+PAGE_BACKGROUND_KEYS = {choice[0] for choice in PageBackground.PAGE_CHOICES}
+
+class SiteSettingsSchema(BaseModel):
+    hero_video_url: Optional[str] = None
+
+class PageBackgroundSchema(BaseModel):
+    page_key: str
+    image_url: Optional[str] = None
 
 class TrendSchema(BaseModel):
     change: int
@@ -1487,6 +1538,55 @@ async def delete_social_link(link_id: int, current_admin: CustomUser = Depends(r
     await sync_to_async(link.delete)()
     await sync_to_async(_log_action)(current_admin, "delete", "SocialLink", link_id, link_platform)
 
+# --- Site settings (hero video + per-page background images) ---
+# Public GET endpoints are unauthenticated and read once per page load
+# (root.tsx loader) - PageBackground rows only exist once an admin has
+# uploaded something for that page, so an unconfigured page_key simply
+# doesn't appear in the returned dict and the frontend keeps its existing
+# placeholder fallback.
+
+@app.get("/site-settings/", response_model=SiteSettingsSchema)
+async def get_site_settings():
+    site_settings_obj = await sync_to_async(SiteSettings.load)()
+    return SiteSettingsSchema(hero_video_url=build_media_url(site_settings_obj.hero_video))
+
+@app.get("/site-settings/page-backgrounds/")
+async def get_page_backgrounds() -> dict[str, Optional[str]]:
+    rows = await sync_to_async(list)(PageBackground.objects.exclude(image=""))
+    return {row.page_key: build_media_url(row.image) for row in rows}
+
+@app.post("/admin/site-settings/hero-video/", response_model=SiteSettingsSchema)
+async def upload_hero_video(
+    file: UploadFile = File(...),
+    current_admin: CustomUser = Depends(require_permission("site_settings.manage_site_settings")),
+):
+    video_dir = os.path.join(settings.MEDIA_ROOT, 'site')
+    file_name = await save_uploaded_video(file, video_dir, "hero_video")
+
+    site_settings_obj = await sync_to_async(SiteSettings.load)()
+    site_settings_obj.hero_video = f'site/{file_name}'
+    await sync_to_async(site_settings_obj.save)()
+    await sync_to_async(_log_action)(current_admin, "update", "SiteSettings", site_settings_obj.pk, "Hero-Video", {"fields": ["hero_video"]})
+    return SiteSettingsSchema(hero_video_url=build_media_url(site_settings_obj.hero_video))
+
+@app.post("/admin/site-settings/page-backgrounds/{page_key}/", response_model=PageBackgroundSchema)
+async def upload_page_background(
+    page_key: str,
+    file: UploadFile = File(...),
+    current_admin: CustomUser = Depends(require_permission("site_settings.manage_site_settings")),
+):
+    if page_key not in PAGE_BACKGROUND_KEYS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unbekannte Seite")
+
+    backgrounds_dir = os.path.join(settings.MEDIA_ROOT, 'site', 'page_backgrounds')
+    file_name = await save_uploaded_image(file, backgrounds_dir, f"page_bg_{page_key}")
+
+    page_background, _ = await sync_to_async(PageBackground.objects.get_or_create)(page_key=page_key)
+    page_background.image = f'site/page_backgrounds/{file_name}'
+    await sync_to_async(page_background.save)()
+    await sync_to_async(_log_action)(current_admin, "update", "PageBackground", page_background.pk, page_key, {"fields": ["image"]})
+    return PageBackgroundSchema(page_key=page_key, image_url=build_media_url(page_background.image))
+
 # --- Social media reach stats (org + players + teams), for sponsor reporting ---
 # Teams don't have their own channels (per product decision) - a team's
 # reach is just the sum of its roster players' reach.
@@ -2321,6 +2421,7 @@ MANAGEABLE_PERMISSIONS: List[tuple[str, str, str]] = [
     ("sponsors", "manage_sponsors", "Sponsoren & Social Links verwalten"),
     ("teams", "manage_teams", "Alle Teams & Spieler verwalten (nicht nur eigenes Team)"),
     ("users", "manage_users", "Nutzer aktivieren/deaktivieren"),
+    ("site_settings", "manage_site_settings", "Hero-Video & Seiten-Hintergründe verwalten"),
 ]
 
 def _build_role_schema(group: Group) -> RoleSchema:

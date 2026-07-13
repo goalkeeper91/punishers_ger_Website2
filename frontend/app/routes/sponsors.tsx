@@ -11,10 +11,14 @@ import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { fetchActiveSponsors, trackSponsorClick, type Sponsor } from "~/lib/publicContent";
+import { fetchPageBackground } from "~/lib/siteSettings";
 
 export const loader: LoaderFunction = async () => {
-  const sponsors = await fetchActiveSponsors();
-  return { sponsors };
+  const [sponsors, backgroundUrl] = await Promise.all([
+    fetchActiveSponsors(),
+    fetchPageBackground("sponsors"),
+  ]);
+  return { sponsors, backgroundUrl };
 };
 
 function SponsorLogo({ sponsor }: { sponsor: Sponsor }) {
@@ -34,7 +38,7 @@ function SponsorLogo({ sponsor }: { sponsor: Sponsor }) {
 }
 
 export default function SponsorsPage() {
-  const { sponsors } = useLoaderData() as { sponsors: Sponsor[] };
+  const { sponsors, backgroundUrl } = useLoaderData() as { sponsors: Sponsor[]; backgroundUrl: string | null };
   const { t } = useTranslation("sponsors");
   const premiumSponsors = sponsors.filter((s) => s.tier === "premium");
   const generalSponsors = sponsors.filter((s) => s.tier === "general");
@@ -43,7 +47,7 @@ export default function SponsorsPage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
         {/* Hero Section for Sponsors */}
-        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=Sponsors+Banner')" }}>
+        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || "https://via.placeholder.com/1920x400?text=Sponsors+Banner"}')` }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>

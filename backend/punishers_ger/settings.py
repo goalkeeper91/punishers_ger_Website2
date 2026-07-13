@@ -152,6 +152,7 @@ INSTALLED_APPS = [
     'faceit_integration',
     'audit_log',
     'social_stats',
+    'site_settings',
 ]
 
 MIDDLEWARE = [

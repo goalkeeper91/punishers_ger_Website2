@@ -11,10 +11,14 @@ import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { fetchCreators, type Creator } from "~/lib/publicContent";
+import { fetchPageBackground } from "~/lib/siteSettings";
 
 export const loader: LoaderFunction = async () => {
-  const creators = await fetchCreators();
-  return { creators };
+  const [creators, backgroundUrl] = await Promise.all([
+    fetchCreators(),
+    fetchPageBackground("creators"),
+  ]);
+  return { creators, backgroundUrl };
 };
 
 function LiveBadge({ creator }: { creator: Creator }) {
@@ -64,7 +68,7 @@ function SocialLinks({ creator, size = "base" }: { creator: Creator; size?: "bas
 }
 
 export default function CreatorsPage() {
-  const { creators } = useLoaderData() as { creators: Creator[] };
+  const { creators, backgroundUrl } = useLoaderData() as { creators: Creator[]; backgroundUrl: string | null };
   const { t } = useTranslation("creators");
   const featuredCreators = creators.filter((c) => c.is_featured);
   const otherCreators = creators.filter((c) => !c.is_featured);
@@ -73,7 +77,7 @@ export default function CreatorsPage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
         {/* Hero Section for Creators */}
-        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: "url('https://via.placeholder.com/1920x400?text=Creators+Banner')" }}>
+        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || "https://via.placeholder.com/1920x400?text=Creators+Banner"}')` }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>
