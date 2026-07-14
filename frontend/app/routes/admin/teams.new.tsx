@@ -77,12 +77,12 @@ export default function AdminTeamsNewPage() {
 
           <Form method="post" className="space-y-6">
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-300">Name</label>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-300">Name <span className="text-red-500">*</span></label>
               <input type="text" id="name" name="name" required className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
               {actionData?.errors?.name && <p className="mt-2 text-sm text-red-500">{actionData.errors.name}</p>}
             </div>
             <div>
-              <label htmlFor="game" className="block text-sm font-medium text-gray-300">Spiel</label>
+              <label htmlFor="game" className="block text-sm font-medium text-gray-300">Spiel <span className="text-red-500">*</span></label>
               <input type="text" id="game" name="game" placeholder="Counter-Strike 2" required className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
               {actionData?.errors?.game && <p className="mt-2 text-sm text-red-500">{actionData.errors.game}</p>}
             </div>

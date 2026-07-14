@@ -131,7 +131,7 @@ export default function AdminPlayerEditPage() {
           <Form method="post" className="space-y-6">
             <input type="hidden" name="_formType" value="update" />
             <div>
-              <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300">Ingame-Name</label>
+              <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300">Ingame-Name <span className="text-red-500">*</span></label>
               <input type="text" id="ingame_name" name="ingame_name" defaultValue={player.ingame_name} required className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
             </div>
             <div>

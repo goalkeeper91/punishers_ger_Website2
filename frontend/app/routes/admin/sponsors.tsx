@@ -271,7 +271,7 @@ export default function AdminSponsorsPage() {
           <Form method="post" className="flex flex-wrap gap-2 items-end">
             <input type="hidden" name="_intent" value="createSponsor" />
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Name</label>
+              <label className="block text-xs text-gray-400 mb-1">Name <span className="text-red-500">*</span></label>
               <input name="name" required className={inputClass} />
             </div>
             <div>
@@ -360,7 +360,7 @@ export default function AdminSponsorsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">URL</label>
+              <label className="block text-xs text-gray-400 mb-1">URL <span className="text-red-500">*</span></label>
               <input name="url" required placeholder="https://..." className={inputClass + " w-56"} />
             </div>
             <div>

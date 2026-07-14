@@ -87,7 +87,7 @@ export default function ApplyPlayerPage() {
           <Form method="post" className="bg-gray-800 p-8 rounded-lg shadow-xl space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label htmlFor="ingame_name" className={labelClass}>{t("fields.ingame_name")}</label>
+                <label htmlFor="ingame_name" className={labelClass}>{t("fields.ingame_name")} <span className="text-red-500">*</span></label>
                 <input type="text" id="ingame_name" name="ingame_name" required className={inputClass} />
               </div>
               <div>
@@ -105,7 +105,7 @@ export default function ApplyPlayerPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="rank" className={labelClass}>{t("fields.rank")}</label>
+                <label htmlFor="rank" className={labelClass}>{t("fields.rank")} <span className="text-red-500">*</span></label>
                 <select id="rank" name="rank" required className={inputClass}>
                   {rankOptions.map((rank) => (
                     <option key={rank} value={rank}>{rank}</option>
@@ -117,7 +117,7 @@ export default function ApplyPlayerPage() {
                 <input type="text" id="full_name" name="full_name" className={inputClass} />
               </div>
               <div>
-                <label htmlFor="email" className={labelClass}>{t("fields.email")}</label>
+                <label htmlFor="email" className={labelClass}>{t("fields.email")} <span className="text-red-500">*</span></label>
                 <input type="email" id="email" name="email" required className={inputClass} />
               </div>
               <div>

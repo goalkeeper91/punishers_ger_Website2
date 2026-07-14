@@ -149,7 +149,7 @@ export default function Home() {
               <div className="bg-gray-800 rounded-lg shadow-xl p-8 transform hover:scale-105 transition-transform duration-300">
                 <h3 className="text-3xl font-bold text-red-600 mb-4">{t("join_section.player_title")}</h3>
                 <p className="text-gray-300 mb-6">{t("join_section.player_description")}</p>
-                <a href="#" className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-full transition-colors duration-300">
+                <a href="/join-us/apply" className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-full transition-colors duration-300">
                   {t("join_section.player_cta")}
                 </a>
               </div>

@@ -194,11 +194,11 @@ export default function AdminTeamEditPage() {
           <Form method="post" className="space-y-6">
             <input type="hidden" name="_intent" value="update" />
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-300">Name</label>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-300">Name <span className="text-red-500">*</span></label>
               <input type="text" id="name" name="name" defaultValue={team.name} required className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
             </div>
             <div>
-              <label htmlFor="game" className="block text-sm font-medium text-gray-300">Spiel</label>
+              <label htmlFor="game" className="block text-sm font-medium text-gray-300">Spiel <span className="text-red-500">*</span></label>
               <input type="text" id="game" name="game" defaultValue={team.game} required className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
             </div>
             <div>
@@ -253,12 +253,12 @@ export default function AdminTeamEditPage() {
           <Form method="post" className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
             <input type="hidden" name="_intent" value="addPlayer" />
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-1">Benutzername</label>
+              <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-1">Benutzername <span className="text-red-500">*</span></label>
               <input type="text" id="username" name="username" required className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
               {actionData?.errors?.username && <p className="mt-1 text-sm text-red-500">{actionData.errors.username}</p>}
             </div>
             <div>
-              <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300 mb-1">Ingame-Name</label>
+              <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300 mb-1">Ingame-Name <span className="text-red-500">*</span></label>
               <input type="text" id="ingame_name" name="ingame_name" required className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
               {actionData?.errors?.ingame_name && <p className="mt-1 text-sm text-red-500">{actionData.errors.ingame_name}</p>}
             </div>

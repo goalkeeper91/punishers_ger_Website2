@@ -74,7 +74,7 @@ export default function AdminNewsNewPage() {
 
           <Form method="post" className="space-y-6">
             <div>
-              <label htmlFor="title" className="block text-sm font-medium text-gray-300">Titel</label>
+              <label htmlFor="title" className="block text-sm font-medium text-gray-300">Titel <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 id="title"
@@ -99,7 +99,7 @@ export default function AdminNewsNewPage() {
             </div>
 
             <div>
-              <label htmlFor="content" className="block text-sm font-medium text-gray-300 mb-1">Inhalt</label>
+              <label htmlFor="content" className="block text-sm font-medium text-gray-300 mb-1">Inhalt <span className="text-red-500">*</span></label>
               <MarkdownToolbar textareaRef={contentRef} />
               <textarea
                 id="content"

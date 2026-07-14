@@ -532,7 +532,7 @@ export default function ProfilePage() {
               <input type="hidden" name="faceit_player_id" value={resolvedFaceitId} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300">{t("faceit.ingame_name_label")}</label>
+                  <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300">{t("faceit.ingame_name_label")} <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     id="ingame_name"

@@ -222,7 +222,7 @@ export default function AdminUsersPage() {
             <Form method="post" className="flex gap-2 items-end mb-6">
               <input type="hidden" name="_intent" value="createRole" />
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Neue Rolle</label>
+                <label className="block text-xs text-gray-400 mb-1">Neue Rolle <span className="text-red-500">*</span></label>
                 <input name="name" required placeholder="z.B. Community Manager" className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white text-sm focus:outline-none focus:ring-red-500 focus:border-red-500" />
               </div>
               <button type="submit" className="py-2 px-4 rounded-md text-white text-sm font-semibold bg-red-600 hover:bg-red-700">+ Rolle anlegen</button>
