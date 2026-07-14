@@ -153,6 +153,7 @@ INSTALLED_APPS = [
     'audit_log',
     'social_stats',
     'site_settings',
+    'applications',
 ]
 
 MIDDLEWARE = [

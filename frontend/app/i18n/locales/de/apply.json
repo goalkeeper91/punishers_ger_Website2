@@ -1,0 +1,21 @@
+{
+  "heading": "Bewerbung als Spieler",
+  "description": "Fülle das Formular aus - wir melden uns bei dir zurück.",
+  "fields": {
+    "ingame_name": "Ingame-Name",
+    "game": "Spiel",
+    "rank": "Rang / Skill-Level",
+    "full_name": "Vor- und Nachname",
+    "email": "E-Mail",
+    "discord_tag": "Discord-Name",
+    "age": "Alter",
+    "message": "Nachricht (optional)"
+  },
+  "submit": "Bewerbung absenden",
+  "submitting": "Wird gesendet...",
+  "success": {
+    "heading": "Danke für deine Bewerbung!",
+    "description": "Wir haben deine Bewerbung erhalten und melden uns bei dir.",
+    "back": "Zurück zu \"Werde Teil von uns\""
+  }
+}

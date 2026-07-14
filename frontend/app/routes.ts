@@ -8,6 +8,7 @@ export default [
   route("/teams/:id", "routes/teams.$id.tsx"),
   route("/creators", "routes/creators.tsx"),
   route("/join-us", "routes/join-us.tsx"),
+  route("/join-us/apply", "routes/join-us.apply.tsx"), // Player application form
   route("/sponsors", "routes/sponsors.tsx"),
   route("/contact", "routes/contact.tsx"),
   route("/imprint", "routes/imprint.tsx"),
@@ -33,5 +34,6 @@ export default [
   route("/admin/sponsors", "routes/admin/sponsors.tsx"), // Admin sponsors & social links
   route("/admin/social-stats", "routes/admin/social-stats.tsx"), // Admin: social media reach (org/players/teams)
   route("/admin/site-settings", "routes/admin/site-settings.tsx"), // Admin: hero video + per-page background images
+  route("/admin/applications", "routes/admin/applications.tsx"), // Admin/Teammanager: player applications (game-scoped for Teammanagers)
   route("/admin/audit-log", "routes/admin/audit-log.tsx"), // Admin audit log (superuser-only)
 ] satisfies RouteConfig;

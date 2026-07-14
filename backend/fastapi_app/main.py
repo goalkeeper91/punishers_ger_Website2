@@ -28,6 +28,7 @@ from users.models import CustomUser, ROLE_TEAM_MANAGER, ROLE_AUTHOR
 from users.emails import send_account_activated_email, send_password_reset_email
 from sponsors.models import Sponsor, SocialLink
 from site_settings.models import SiteSettings, PageBackground
+from applications.models import PlayerApplication
 from faceit_integration import sync as faceit_sync
 from faceit_integration.client import FaceitClient, FaceitAPIError
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
@@ -2461,6 +2462,146 @@ async def get_user_profile(username: str):
 # assigning permissions stays superuser-only (get_current_admin_user) - this
 # is the control surface itself, not something to delegate further.
 
+# --- Player applications ("Jetzt bewerben") ---
+# Public submission, admin/Teammanager review. A Teammanager only ever sees/
+# edits applications for their own team's game (see _resolve_application_game_scope) -
+# unlike every other admin-scoped resource in this file, there's no single
+# "team" to check ensure_team_access() against, since an application isn't
+# tied to a specific team yet, only a game.
+
+class PlayerApplicationCreate(BaseModel):
+    ingame_name: str
+    game: str
+    rank: str
+    full_name: Optional[str] = None
+    email: EmailStr
+    discord_tag: Optional[str] = None
+    age: Optional[int] = None
+    message: Optional[str] = None
+
+class PlayerApplicationStatusUpdate(BaseModel):
+    status: str
+
+class PlayerApplicationSchema(BaseModel):
+    id: int
+    ingame_name: str
+    game: str
+    rank: str
+    full_name: Optional[str] = None
+    email: str
+    discord_tag: Optional[str] = None
+    age: Optional[int] = None
+    message: Optional[str] = None
+    status: str
+    created_at: str
+    reviewed_at: Optional[str] = None
+    reviewed_by_username: Optional[str] = None
+
+def build_application_schema(application: PlayerApplication) -> PlayerApplicationSchema:
+    return PlayerApplicationSchema(
+        id=application.id,
+        ingame_name=application.ingame_name,
+        game=application.game,
+        rank=application.rank,
+        full_name=application.full_name or None,
+        email=application.email,
+        discord_tag=application.discord_tag or None,
+        age=application.age,
+        message=application.message or None,
+        status=application.status,
+        created_at=application.created_at.isoformat(),
+        reviewed_at=application.reviewed_at.isoformat() if application.reviewed_at else None,
+        reviewed_by_username=application.reviewed_by.username if application.reviewed_by else None,
+    )
+
+APPLICATION_GAME_CHOICES = {choice[0] for choice in PlayerApplication.GAME_CHOICES}
+APPLICATION_STATUS_CHOICES = {choice[0] for choice in PlayerApplication.STATUS_CHOICES}
+
+async def _resolve_application_game_scope(current_user: CustomUser) -> Optional[str]:
+    """None = full access (Admin or applications.manage_applications holder).
+    Otherwise the single game string a Teammanager's visibility is scoped to.
+    Raises 403 for anyone else (plain members, Authors, ...)."""
+    if current_user.is_superuser:
+        return None
+    has_blanket = await sync_to_async(current_user.has_perm)("applications.manage_applications")
+    if has_blanket:
+        return None
+    user_roles = await sync_to_async(lambda: set(current_user.roles))()
+    if ROLE_TEAM_MANAGER in user_roles and current_user.team_id:
+        team_game = await sync_to_async(
+            lambda: Team.objects.filter(id=current_user.team_id).values_list('game', flat=True).first()
+        )()
+        if team_game:
+            return team_game
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Keine Berechtigung für Bewerbungen.")
+
+@app.post("/applications/players/", response_model=PlayerApplicationSchema, status_code=status.HTTP_201_CREATED)
+async def create_player_application(payload: PlayerApplicationCreate):
+    if payload.game not in APPLICATION_GAME_CHOICES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unbekanntes Spiel")
+    application = await sync_to_async(PlayerApplication.objects.create)(
+        ingame_name=payload.ingame_name,
+        game=payload.game,
+        rank=payload.rank,
+        full_name=payload.full_name or "",
+        email=payload.email,
+        discord_tag=payload.discord_tag or "",
+        age=payload.age,
+        message=payload.message or "",
+    )
+    return build_application_schema(application)
+
+@app.get("/admin/applications/players/", response_model=List[PlayerApplicationSchema])
+async def get_player_applications(current_user: CustomUser = Depends(get_current_user)):
+    game_scope = await _resolve_application_game_scope(current_user)
+
+    def _collect():
+        qs = PlayerApplication.objects.select_related('reviewed_by')
+        if game_scope:
+            qs = qs.filter(game=game_scope)
+        return list(qs)
+
+    applications = await sync_to_async(_collect)()
+    return [build_application_schema(a) for a in applications]
+
+@app.put("/admin/applications/players/{application_id}/status/", response_model=PlayerApplicationSchema)
+async def update_player_application_status(
+    application_id: int,
+    payload: PlayerApplicationStatusUpdate,
+    current_user: CustomUser = Depends(get_current_user),
+):
+    game_scope = await _resolve_application_game_scope(current_user)
+    try:
+        application = await sync_to_async(PlayerApplication.objects.select_related('reviewed_by').get)(id=application_id)
+    except PlayerApplication.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung nicht gefunden")
+    if game_scope and application.game != game_scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Keine Berechtigung für diese Bewerbung.")
+    if payload.status not in APPLICATION_STATUS_CHOICES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiger Status")
+
+    application.status = payload.status
+    application.reviewed_by = current_user
+    application.reviewed_at = datetime.now(timezone.utc)
+    await sync_to_async(application.save)(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+    await sync_to_async(_log_action)(
+        current_user, "update", "PlayerApplication", application.id, application.ingame_name, {"status": payload.status}
+    )
+    return build_application_schema(application)
+
+@app.delete("/admin/applications/players/{application_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_player_application(application_id: int, current_user: CustomUser = Depends(get_current_user)):
+    game_scope = await _resolve_application_game_scope(current_user)
+    try:
+        application = await sync_to_async(PlayerApplication.objects.get)(id=application_id)
+    except PlayerApplication.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung nicht gefunden")
+    if game_scope and application.game != game_scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Keine Berechtigung für diese Bewerbung.")
+    application_name = application.ingame_name
+    await sync_to_async(application.delete)()
+    await sync_to_async(_log_action)(current_user, "delete", "PlayerApplication", application_id, application_name)
+
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every
 # add/change/delete/view permission Django creates per model, which would be
@@ -2471,6 +2612,7 @@ MANAGEABLE_PERMISSIONS: List[tuple[str, str, str]] = [
     ("teams", "manage_teams", "Alle Teams & Spieler verwalten (nicht nur eigenes Team)"),
     ("users", "manage_users", "Nutzer aktivieren/deaktivieren"),
     ("site_settings", "manage_site_settings", "Hero-Video & Seiten-Hintergründe verwalten"),
+    ("applications", "manage_applications", "Bewerbungen einsehen & bearbeiten (alle Spiele)"),
 ]
 
 def _build_role_schema(group: Group) -> RoleSchema:

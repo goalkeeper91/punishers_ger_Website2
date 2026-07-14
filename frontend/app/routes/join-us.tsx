@@ -53,7 +53,7 @@ export default function JoinUsPage() {
                   <li>{t("opportunities.player.perk3")}</li>
                   <li>{t("opportunities.player.perk4")}</li>
                 </ul>
-                <a href="#" className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-full transition-colors duration-300">
+                <a href="/join-us/apply" className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-full transition-colors duration-300">
                   {t("opportunities.player.cta")}
                 </a>
               </div>
@@ -105,7 +105,7 @@ export default function JoinUsPage() {
               {t("application.description")}
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-6">
-              <a href="#" className="inline-block bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">
+              <a href="/join-us/apply" className="inline-block bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">
                 {t("application.form_cta")}
               </a>
               <a href="mailto:info@punishersgermany.de" className="inline-block bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">

@@ -1,0 +1,21 @@
+{
+  "heading": "Player Application",
+  "description": "Fill out the form - we'll get back to you.",
+  "fields": {
+    "ingame_name": "Ingame Name",
+    "game": "Game",
+    "rank": "Rank / Skill Level",
+    "full_name": "Full Name",
+    "email": "Email",
+    "discord_tag": "Discord Name",
+    "age": "Age",
+    "message": "Message (optional)"
+  },
+  "submit": "Submit Application",
+  "submitting": "Sending...",
+  "success": {
+    "heading": "Thanks for your application!",
+    "description": "We've received your application and will get back to you.",
+    "back": "Back to \"Join Us\""
+  }
+}

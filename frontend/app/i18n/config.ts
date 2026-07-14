@@ -40,6 +40,8 @@ import profileDe from "./locales/de/profile.json";
 import profileEn from "./locales/en/profile.json";
 import statsDe from "./locales/de/stats.json";
 import statsEn from "./locales/en/stats.json";
+import applyDe from "./locales/de/apply.json";
+import applyEn from "./locales/en/apply.json";
 
 export const SUPPORTED_LANGUAGES = ["de", "en"] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
@@ -62,6 +64,7 @@ const resources = {
     auth: authDe,
     profile: profileDe,
     stats: statsDe,
+    apply: applyDe,
   },
   en: {
     common: commonEn,
@@ -78,6 +81,7 @@ const resources = {
     auth: authEn,
     profile: profileEn,
     stats: statsEn,
+    apply: applyEn,
   },
 };
 

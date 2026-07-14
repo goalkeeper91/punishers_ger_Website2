@@ -6,7 +6,7 @@
 
 import { hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "./auth";
 
-export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings";
+export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications";
 
 export interface AdminNavItem {
   key: AdminNavKey;
@@ -29,10 +29,11 @@ export function getAdminNavItems(user: AuthUser | null): AdminNavItem[] {
   const canManageUsers = hasPerm("users.manage_users");
   const canBlanketTeams = hasPerm("teams.manage_teams");
   const canSiteSettings = hasPerm("site_settings.manage_site_settings");
+  const canApplications = hasPerm("applications.manage_applications");
 
   const items: AdminNavItem[] = [];
 
-  if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings) {
+  if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings || canApplications) {
     items.push({ key: "dashboard", href: "/admin", label: "Dashboard" });
   }
   if (isAdmin) {
@@ -58,6 +59,9 @@ export function getAdminNavItems(user: AuthUser | null): AdminNavItem[] {
   }
   if (isAdmin || canSiteSettings) {
     items.push({ key: "site-settings", href: "/admin/site-settings", label: "Seiteneinstellungen" });
+  }
+  if (isAdmin || canApplications || isTeamManager) {
+    items.push({ key: "applications", href: "/admin/applications", label: "Bewerbungen" });
   }
   if (isAdmin) {
     items.push({ key: "audit-log", href: "/admin/audit-log", label: "Audit-Log" });
