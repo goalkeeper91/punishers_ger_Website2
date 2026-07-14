@@ -6,38 +6,20 @@
   "section1": {
     "heading": "Information according to § 5 TMG",
     "line1": "Punishers Germany",
-    "line2": "[Name of authorized representative]",
-    "line3": "[Street and house number]",
-    "line4": "[Postal code, city]"
+    "line2": "c/o NextlevelNation",
+    "line3": "Owner: Christian Steinbach",
+    "line4": "Stettener Weg 2",
+    "line5": "89584 Ehingen (Donau), Germany"
   },
   "section2": {
     "heading": "Contact",
-    "phone_label": "Phone: [Phone number]",
     "email_label": "Email:"
   },
   "section3": {
-    "heading": "Represented by",
-    "body": "[Name of authorized representative]"
+    "heading": "Responsible for content (§ 18 para. 2 MStV)",
+    "body": "Marcel Turlach"
   },
   "section4": {
-    "heading": "Register Entry",
-    "line1": "Entry in the commercial register.",
-    "line2": "Register court: [Competent register court]",
-    "line3": "Register number: [Register number]",
-    "note": "(If applicable, otherwise remove or adapt this section)"
-  },
-  "section5": {
-    "heading": "VAT ID",
-    "line1": "VAT identification number according to §27 a of the German VAT Act:",
-    "line2": "[Your VAT ID]",
-    "note": "(If applicable, otherwise remove or adapt this section)"
-  },
-  "section6": {
-    "heading": "Responsible for content according to § 55 para. 2 RStV",
-    "line1": "[Name of responsible person]",
-    "line2": "[Address of responsible person]"
-  },
-  "section7": {
     "heading": "Dispute Resolution",
     "body_prefix": "The European Commission provides a platform for online dispute resolution (ODR):",
     "body_suffix": "You can find our email address above in the imprint.",
