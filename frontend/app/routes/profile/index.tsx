@@ -46,6 +46,17 @@ interface PlayerProfile {
   faceit_player_id: string | null;
 }
 
+// Result of GET /players/faceit-lookup/?nickname=... - resolves a FACEIT
+// nickname (easy to find) to the numeric player_id (not) that actually
+// gets stored/synced. See the "faceitLookup" clientAction branch below.
+interface FaceitLookupResult {
+  player_id: string;
+  nickname: string;
+  avatar: string | null;
+  skill_level: number | null;
+  faceit_elo: number | null;
+}
+
 // --- CLIENT LOADER FUNCTION ---
 // Runs in the browser (not on the server), since the session lives in
 // localStorage (see app/lib/auth.ts), which the server can't read.
@@ -131,6 +142,19 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       }
       return { success: t("action_messages.profile_updated") };
 
+    } else if (formType === "faceitLookup") {
+      const nickname = String(formData.get("faceit_nickname") || "").trim();
+      if (!nickname) {
+        return { error: t("action_messages.no_nickname") };
+      }
+      const response = await authFetch(`/players/faceit-lookup/?nickname=${encodeURIComponent(nickname)}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      const lookupResult: FaceitLookupResult = await response.json();
+      return { lookupResult };
+
     } else if (formType === "playerProfileUpdate") {
       const ingame_name = String(formData.get("ingame_name") || "");
       const faceit_player_id = formData.get("faceit_player_id");
@@ -197,12 +221,16 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
 
 export default function ProfilePage() {
   const loaderData = useLoaderData() as { user: UserProfile | null; error?: string; socialChannels: SocialChannel[]; player: PlayerProfile | null };
-  const actionData = useActionData() as { error?: string; success?: string } | undefined;
+  const actionData = useActionData() as { error?: string; success?: string; lookupResult?: FaceitLookupResult } | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
   const { t } = useTranslation("profile");
 
   const { user, error: loaderError, socialChannels, player } = loaderData;
+  // Once a lookup resolves a nickname to a player_id, that becomes what
+  // "Speichern" actually submits - overriding whatever was already linked.
+  const faceitLookupResult = actionData?.lookupResult ?? null;
+  const resolvedFaceitId = faceitLookupResult?.player_id ?? player?.faceit_player_id ?? "";
   const twitchChannel = socialChannels.find((c) => c.platform === "twitch") ?? null;
   const [profilePicturePreview, setProfilePicturePreview] = useState<string | null>(user?.profile_picture_url || null);
   const [searchParams] = useSearchParams();
@@ -492,13 +520,16 @@ export default function ProfilePage() {
           </div>
 
           {/* FACEIT-Profil - unabhängig von Team-Mitgliedschaft, siehe
-              GET/POST/PUT /players/me/ (fastapi_app/main.py) */}
+              GET/POST/PUT /players/me/ (fastapi_app/main.py). Die FACEIT
+              player_id ist als Nutzer praktisch nicht auffindbar, daher wird
+              sie hier per Nickname-Suche (GET /players/faceit-lookup/)
+              aufgelöst statt manuell eingegeben. */}
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
             <h2 className="text-3xl font-bold text-white mb-2">{t("faceit.heading")}</h2>
             <p className="text-gray-400 text-sm mb-6">{t("faceit.description")}</p>
             <Form method="post" className="space-y-6">
-              <input type="hidden" name="_formType" value="playerProfileUpdate" />
               <input type="hidden" name="_hasExistingPlayer" value={player ? "true" : "false"} />
+              <input type="hidden" name="faceit_player_id" value={resolvedFaceitId} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300">{t("faceit.ingame_name_label")}</label>
@@ -512,23 +543,56 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="faceit_player_id" className="block text-sm font-medium text-gray-300">{t("faceit.faceit_id_label")}</label>
-                  <input
-                    type="text"
-                    id="faceit_player_id"
-                    name="faceit_player_id"
-                    defaultValue={player?.faceit_player_id || ""}
-                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">{t("faceit.faceit_id_hint")}</p>
+                  <label htmlFor="faceit_nickname" className="block text-sm font-medium text-gray-300">{t("faceit.faceit_nickname_label")}</label>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      type="text"
+                      id="faceit_nickname"
+                      name="faceit_nickname"
+                      defaultValue={faceitLookupResult?.nickname || ""}
+                      className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                    />
+                    <button
+                      type="submit"
+                      name="_formType"
+                      value="faceitLookup"
+                      disabled={isSubmitting}
+                      className="flex-shrink-0 py-2 px-4 border border-gray-600 shadow-sm text-sm font-medium rounded-md text-white bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                    >
+                      {isSubmitting && navigation.formData?.get("_formType") === "faceitLookup" ? t("faceit.searching") : t("faceit.search")}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">{t("faceit.faceit_nickname_hint")}</p>
+
+                  {faceitLookupResult && (
+                    <div className="mt-3 flex items-center gap-3 bg-gray-900/50 rounded-md p-3">
+                      {faceitLookupResult.avatar && (
+                        <img src={faceitLookupResult.avatar} alt={faceitLookupResult.nickname} className="w-10 h-10 rounded-full object-cover" />
+                      )}
+                      <div>
+                        <p className="text-sm text-gray-400">{t("faceit.found_heading")}</p>
+                        <p className="text-white font-semibold">{faceitLookupResult.nickname}</p>
+                        {faceitLookupResult.skill_level != null && (
+                          <p className="text-xs text-gray-400">
+                            {t("faceit.found_level", { level: faceitLookupResult.skill_level, elo: faceitLookupResult.faceit_elo })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {!faceitLookupResult && player?.faceit_player_id && (
+                    <p className="mt-2 text-xs text-gray-500">{t("faceit.already_linked", { id: player.faceit_player_id })}</p>
+                  )}
                 </div>
               </div>
               <button
                 type="submit"
-                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                disabled={isSubmitting}
+                name="_formType"
+                value="playerProfileUpdate"
+                disabled={isSubmitting || !resolvedFaceitId}
+                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSubmitting ? t("faceit.saving") : t("faceit.save")}
+                {isSubmitting && navigation.formData?.get("_formType") === "playerProfileUpdate" ? t("faceit.saving") : t("faceit.save")}
               </button>
             </Form>
           </div>

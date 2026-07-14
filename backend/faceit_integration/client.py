@@ -68,6 +68,19 @@ class FaceitClient:
         """GET /players/{player_id}/stats/{game_id} - lifetime stats summary."""
         return self._get(f"/players/{player_id}/stats/{game_id}")
 
+    def get_player_by_nickname(self, nickname: str, game_id: Optional[str] = None) -> dict[str, Any]:
+        """GET /players?nickname=... - resolves a FACEIT nickname to the same
+        player object get_player() returns (profile, games, player_id).
+        Passing game_id makes FACEIT 404 if that account has no profile for
+        that game, so callers never end up with a player_id that can't sync
+        stats. Used for self-service linking (see /players/faceit-lookup/ in
+        fastapi_app/main.py) - the numeric player_id is otherwise unreasonable
+        for a regular user to find on their own."""
+        params: dict[str, Any] = {"nickname": nickname}
+        if game_id:
+            params["game"] = game_id
+        return self._get("/players", params=params)
+
     def get_player_history(
         self, player_id: str, game_id: str, offset: int = 0, limit: int = 20
     ) -> dict[str, Any]:

@@ -29,6 +29,7 @@ from users.emails import send_account_activated_email, send_password_reset_email
 from sponsors.models import Sponsor, SocialLink
 from site_settings.models import SiteSettings, PageBackground
 from faceit_integration import sync as faceit_sync
+from faceit_integration.client import FaceitClient, FaceitAPIError
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
 from faceit_integration.scheduler import start_scheduler, stop_scheduler
 from twitch_integration.client import TwitchClient, TwitchAPIError, extract_twitch_login
@@ -639,6 +640,13 @@ class PlayerSelfUpdate(BaseModel):
     ingame_name: Optional[str] = None
     faceit_player_id: Optional[str] = None
 
+class FaceitPlayerLookupSchema(BaseModel):
+    player_id: str
+    nickname: str
+    avatar: Optional[str] = None
+    skill_level: Optional[int] = None
+    faceit_elo: Optional[int] = None
+
 class ClickStat(BaseModel):
     id: int
     label: str
@@ -1077,6 +1085,40 @@ async def update_user_profile(
         await sync_to_async(user.save)(update_fields=update_fields)
 
     return await build_user_schema(user)
+
+# Resolves a FACEIT nickname to a player_id - the opaque FACEIT player_id
+# (a UUID, e.g. "f5f...") is effectively impossible for a regular user to
+# find on their own, but their nickname is exactly what they see everywhere
+# on faceit.com. Any logged-in user may look up any nickname (read-only,
+# same trust level as the public /creators/ or /teams/ endpoints); nothing
+# is written here, so this doesn't need require_team_management_access.
+@app.get("/players/faceit-lookup/", response_model=FaceitPlayerLookupSchema)
+async def lookup_faceit_player(nickname: str, current_user: CustomUser = Depends(get_current_user)):
+    nickname = nickname.strip()
+    if not nickname:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nickname darf nicht leer sein.")
+
+    def _lookup():
+        return FaceitClient().get_player_by_nickname(nickname, game_id=settings.FACEIT_DEFAULT_GAME_ID)
+
+    try:
+        profile = await sync_to_async(_lookup)()
+    except FaceitAPIError as exc:
+        if "(404)" in str(exc):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Kein FACEIT-Spieler mit dem Nickname \"{nickname}\" gefunden (oder kein CS2-Profil).",
+            )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="FACEIT-Dienst momentan nicht erreichbar.")
+
+    game_info = (profile.get("games") or {}).get(settings.FACEIT_DEFAULT_GAME_ID, {})
+    return FaceitPlayerLookupSchema(
+        player_id=profile["player_id"],
+        nickname=profile.get("nickname", nickname),
+        avatar=profile.get("avatar") or None,
+        skill_level=game_info.get("skill_level"),
+        faceit_elo=game_info.get("faceit_elo"),
+    )
 
 # Self-service Player profile (ingame_name + faceit_player_id), independent
 # of team membership - team assignment stays exclusively an admin/
