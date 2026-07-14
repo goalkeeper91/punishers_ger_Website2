@@ -64,6 +64,29 @@ export async function fetchActiveSocialLinks(): Promise<SocialLink[]> {
   }
 }
 
+export interface TeamTeaser {
+  id: number;
+  name: string;
+  game: string;
+  description: string | null;
+  image_url: string | null;
+  is_main_team: boolean;
+}
+
+/** Just the org's main (flagship) teams, for the home page teaser grid -
+ * the full roster/detail view lives on /teams and /teams/:id. */
+export async function fetchMainTeams(): Promise<TeamTeaser[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/teams/`);
+    if (!res.ok) return [];
+    const teams: TeamTeaser[] = await res.json();
+    return teams.filter((team) => team.is_main_team);
+  } catch (error) {
+    console.error("Failed to fetch teams:", error);
+    return [];
+  }
+}
+
 export interface MatchHighlight {
   kind: "next" | "last";
   faceit_match_id: string;

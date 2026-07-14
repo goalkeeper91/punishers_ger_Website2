@@ -12,20 +12,11 @@
   "teams_section": {
     "heading": "Unsere Teams",
     "description": "Lerne die Spieler kennen, die uns auf dem Schlachtfeld vertreten und unsere Farben mit Stolz tragen.",
-    "cs2_title": "CS2 Squad",
-    "cs2_description": "Unsere Counter-Strike 2 Profis dominieren die Server mit Präzision und Teamwork.",
-    "valorant_title": "Valorant Elite",
-    "valorant_description": "Schnelle Reflexe und taktisches Geschick zeichnen unser Valorant Team aus.",
-    "lol_title": "League of Legends",
-    "lol_description": "Strategie und Koordination sind der Schlüssel zum Erfolg unseres LoL-Teams.",
     "learn_more": "Mehr erfahren"
   },
   "creators_section": {
     "heading": "Unsere Content Creators",
-    "description": "Entdecke die Persönlichkeiten, die unsere Community unterhalten, inspirieren und unsere Werte in die Welt tragen.",
-    "creator1_bio": "Streamt täglich Shooter und RPGs. Folgt ihr für spannende Unterhaltung!",
-    "creator2_bio": "Taktikanalysen und Highlights aus der Esport-Welt. Immer auf dem neuesten Stand.",
-    "creator3_bio": "Liebhaber klassischer Spiele und entspannter Streams. Nostalgie pur!"
+    "description": "Entdecke die Persönlichkeiten, die unsere Community unterhalten, inspirieren und unsere Werte in die Welt tragen."
   },
   "join_section": {
     "heading": "Werde Teil der Punishers Germany Familie!",
