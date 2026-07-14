@@ -29,11 +29,15 @@ from users.emails import send_account_activated_email, send_password_reset_email
 from sponsors.models import Sponsor, SocialLink
 from site_settings.models import SiteSettings, PageBackground
 from applications.models import PlayerApplication
+from discord_bot.models import DiscordGuild, AnnouncementChannelMapping, AnnouncementLog
+from discord_bot import redis_bridge as discord_redis_bridge
+from discord_bot.listener import start_listener as start_discord_listener, stop_listener as stop_discord_listener
 from faceit_integration import sync as faceit_sync
 from faceit_integration.client import FaceitClient, FaceitAPIError
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
 from faceit_integration.scheduler import start_scheduler, stop_scheduler
 from twitch_integration.client import TwitchClient, TwitchAPIError, extract_twitch_login
+from twitch_integration.scheduler import start_scheduler as start_twitch_live_scheduler, stop_scheduler as stop_twitch_live_scheduler
 from audit_log.models import AuditLogEntry
 from social_stats.models import PlayerSocialStats, TwitchAuthorization
 from social_stats import sync as social_stats_sync
@@ -170,9 +174,13 @@ def _log_action(
 async def lifespan(app: FastAPI):
     start_scheduler()
     start_social_stats_scheduler()
+    start_twitch_live_scheduler()
+    start_discord_listener()
     yield
     stop_scheduler()
     stop_social_stats_scheduler()
+    stop_twitch_live_scheduler()
+    stop_discord_listener()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -1292,6 +1300,29 @@ async def get_news_article_admin(article_id: int, current_user: CustomUser = Dep
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="News article not found")
     return await build_news_schema(article)
 
+def _announce_news_published(article: NewsArticle) -> None:
+    """Fires a Discord "news published" announcement - called from the
+    create/update news endpoints below, only on a draft->published
+    transition (or direct creation as published)."""
+    from discord_bot.models import AnnouncementChannelMapping
+    from discord_bot.redis_bridge import publish_notification
+
+    excerpt = (article.content or "")[:300]
+    article_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/news/{article.slug}"
+
+    mappings = AnnouncementChannelMapping.objects.filter(
+        event_type="news_published", guild__is_active=True
+    ).select_related("guild")
+    for mapping in mappings:
+        publish_notification(
+            event_type="news_published",
+            guild=mapping.guild,
+            channel_id=mapping.channel_id,
+            title=article.title,
+            description=excerpt,
+            fields=[{"name": "Link", "value": article_url, "inline": False}],
+        )
+
 @app.post("/admin/news/", response_model=NewsArticleSchema, status_code=status.HTTP_201_CREATED)
 async def create_news_article(
     payload: NewsArticleCreate,
@@ -1313,6 +1344,8 @@ async def create_news_article(
     )
     await sync_to_async(_log_action)(current_user, "create", "NewsArticle", article.id, article.title)
     await sync_to_async(sync_translations_for_article)(article)
+    if article.status == 'published':
+        await sync_to_async(_announce_news_published)(article)
     return await build_news_schema(article)
 
 @app.put("/admin/news/{article_id}/", response_model=NewsArticleSchema)
@@ -1338,6 +1371,8 @@ async def update_news_article(
         if slug_taken:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slug already in use")
 
+    was_published = article.status == 'published'
+
     update_fields = []
     for field, value in data.items():
         setattr(article, field, value)
@@ -1350,6 +1385,8 @@ async def update_news_article(
         # changed - a status/slug-only edit shouldn't hit LibreTranslate.
         if "title" in update_fields or "content" in update_fields:
             await sync_to_async(sync_translations_for_article)(article)
+        if not was_published and article.status == 'published':
+            await sync_to_async(_announce_news_published)(article)
 
     return await build_news_schema(article)
 
@@ -2602,6 +2639,170 @@ async def delete_player_application(application_id: int, current_user: CustomUse
     await sync_to_async(application.delete)()
     await sync_to_async(_log_action)(current_user, "delete", "PlayerApplication", application_id, application_name)
 
+# --- Discord bot dashboard ---
+# Bridges to the org's Discord bot, a separate deployment (bot-plattform)
+# reachable only via Redis pub/sub (see discord_bot/redis_bridge.py and
+# discord_bot/listener.py). Everything here is gated by the same permission,
+# discord_bot.manage_discord_bot - there's no team/game-scoping need like
+# applications has, since there's only one org-wide Discord presence.
+
+class DiscordChannelMappingSchema(BaseModel):
+    event_type: str
+    channel_id: str
+    channel_label: Optional[str] = None
+
+class DiscordGuildSchema(BaseModel):
+    guild_id: str
+    name: str
+    icon_url: Optional[str] = None
+    member_count: int
+    last_seen_at: str
+    channel_mappings: List[DiscordChannelMappingSchema]
+
+class DiscordChannelMappingsUpdate(BaseModel):
+    mappings: List[DiscordChannelMappingSchema]
+
+class DiscordAnnounceRequest(BaseModel):
+    guild_id: str
+    channel_id: str
+    title: str
+    description: Optional[str] = None
+
+class DiscordAnnouncementLogSchema(BaseModel):
+    id: int
+    event_type: str
+    guild_name: Optional[str] = None
+    channel_id: str
+    title: str
+    description: Optional[str] = None
+    triggered_by_username: Optional[str] = None
+    success: bool
+    error_message: Optional[str] = None
+    created_at: str
+
+class DiscordBotStatusSchema(BaseModel):
+    online: bool
+    guild_count: Optional[int] = None
+    uptime_seconds: Optional[int] = None
+    last_heartbeat: Optional[str] = None
+
+DISCORD_EVENT_TYPES = {choice[0] for choice in AnnouncementChannelMapping.EVENT_TYPE_CHOICES}
+
+def build_discord_guild_schema(guild: DiscordGuild) -> DiscordGuildSchema:
+    return DiscordGuildSchema(
+        guild_id=guild.guild_id,
+        name=guild.name,
+        icon_url=guild.icon_url or None,
+        member_count=guild.member_count,
+        last_seen_at=guild.last_seen_at.isoformat(),
+        channel_mappings=[
+            DiscordChannelMappingSchema(
+                event_type=m.event_type, channel_id=m.channel_id, channel_label=m.channel_label or None
+            )
+            for m in guild.channel_mappings.all()
+        ],
+    )
+
+@app.get("/admin/discord/status/", response_model=DiscordBotStatusSchema)
+async def get_discord_bot_status(current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot"))):
+    status_data = await sync_to_async(discord_redis_bridge.get_bot_status)()
+    if not status_data:
+        return DiscordBotStatusSchema(online=False)
+    return DiscordBotStatusSchema(
+        online=True,
+        guild_count=status_data.get("guild_count"),
+        uptime_seconds=status_data.get("uptime_seconds"),
+        last_heartbeat=status_data.get("last_heartbeat"),
+    )
+
+@app.get("/admin/discord/guilds/", response_model=List[DiscordGuildSchema])
+async def get_discord_guilds(current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot"))):
+    def _collect():
+        return list(DiscordGuild.objects.filter(is_active=True).prefetch_related('channel_mappings').order_by('name'))
+    guilds = await sync_to_async(_collect)()
+    return [build_discord_guild_schema(g) for g in guilds]
+
+@app.put("/admin/discord/guilds/{guild_id}/channels/", response_model=DiscordGuildSchema)
+async def update_discord_channel_mappings(
+    guild_id: str,
+    payload: DiscordChannelMappingsUpdate,
+    current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot")),
+):
+    try:
+        guild = await sync_to_async(DiscordGuild.objects.get)(guild_id=guild_id, is_active=True)
+    except DiscordGuild.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discord-Server nicht gefunden")
+
+    for mapping in payload.mappings:
+        if mapping.event_type not in DISCORD_EVENT_TYPES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unbekannter event_type: {mapping.event_type}")
+
+    def _save():
+        for mapping in payload.mappings:
+            AnnouncementChannelMapping.objects.update_or_create(
+                guild=guild,
+                event_type=mapping.event_type,
+                defaults={"channel_id": mapping.channel_id, "channel_label": mapping.channel_label or ""},
+            )
+        return DiscordGuild.objects.prefetch_related('channel_mappings').get(id=guild.id)
+
+    guild = await sync_to_async(_save)()
+    await sync_to_async(_log_action)(current_user, "update", "DiscordGuild", guild.id, guild.name, {"fields": ["channel_mappings"]})
+    return build_discord_guild_schema(guild)
+
+@app.post("/admin/discord/announce/", response_model=DiscordAnnouncementLogSchema, status_code=status.HTTP_201_CREATED)
+async def send_discord_announcement(
+    payload: DiscordAnnounceRequest,
+    current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot")),
+):
+    try:
+        guild = await sync_to_async(DiscordGuild.objects.get)(guild_id=payload.guild_id, is_active=True)
+    except DiscordGuild.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discord-Server nicht gefunden")
+
+    def _send():
+        discord_redis_bridge.publish_notification(
+            event_type="manual",
+            guild=guild,
+            channel_id=payload.channel_id,
+            title=payload.title,
+            description=payload.description or "",
+            triggered_by=current_user,
+        )
+        # Schema built here, inside the sync context, since it lazy-loads
+        # entry.guild/entry.triggered_by - doing that in the async function
+        # body instead would hit Django's SynchronousOnlyOperation guard.
+        entry = AnnouncementLog.objects.select_related('guild', 'triggered_by').filter(guild=guild).order_by('-created_at').first()
+        return build_discord_log_schema(entry)
+
+    log_schema = await sync_to_async(_send)()
+    await sync_to_async(_log_action)(current_user, "create", "AnnouncementLog", log_schema.id, log_schema.title)
+    return log_schema
+
+def build_discord_log_schema(entry: AnnouncementLog) -> DiscordAnnouncementLogSchema:
+    return DiscordAnnouncementLogSchema(
+        id=entry.id,
+        event_type=entry.event_type,
+        guild_name=entry.guild.name if entry.guild_id else None,
+        channel_id=entry.channel_id,
+        title=entry.title,
+        description=entry.description or None,
+        triggered_by_username=entry.triggered_by.username if entry.triggered_by_id else None,
+        success=entry.success,
+        error_message=entry.error_message or None,
+        created_at=entry.created_at.isoformat(),
+    )
+
+@app.get("/admin/discord/log/", response_model=List[DiscordAnnouncementLogSchema])
+async def get_discord_announcement_log(
+    limit: int = 50,
+    current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot")),
+):
+    def _collect():
+        return list(AnnouncementLog.objects.select_related('guild', 'triggered_by').order_by('-created_at')[:limit])
+    entries = await sync_to_async(_collect)()
+    return [build_discord_log_schema(e) for e in entries]
+
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every
 # add/change/delete/view permission Django creates per model, which would be
@@ -2613,6 +2814,7 @@ MANAGEABLE_PERMISSIONS: List[tuple[str, str, str]] = [
     ("users", "manage_users", "Nutzer aktivieren/deaktivieren"),
     ("site_settings", "manage_site_settings", "Hero-Video & Seiten-Hintergründe verwalten"),
     ("applications", "manage_applications", "Bewerbungen einsehen & bearbeiten (alle Spiele)"),
+    ("discord_bot", "manage_discord_bot", "Discord-Bot verwalten"),
 ]
 
 def _build_role_schema(group: Group) -> RoleSchema:

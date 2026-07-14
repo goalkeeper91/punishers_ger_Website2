@@ -66,6 +66,14 @@ services:
       FACEIT_SYNC_INTERVAL_MINUTES: ${FACEIT_SYNC_INTERVAL_MINUTES:-180}
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
       TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
+      TWITCH_LIVE_POLL_INTERVAL_MINUTES: ${TWITCH_LIVE_POLL_INTERVAL_MINUTES:-5}
+      # Redis bridge to the org's Discord bot - a separate deployment
+      # (bot-plattform repo) reachable only via Redis pub/sub, not a REST
+      # API. Its `redis` container is already reachable here because that
+      # deployment also joins `goalkeeper_prod_network` (the `shared`
+      # network below) - see discord_bot/redis_bridge.py.
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
       EMAIL_HOST: ${EMAIL_HOST:-}
       EMAIL_PORT: ${EMAIL_PORT:-587}

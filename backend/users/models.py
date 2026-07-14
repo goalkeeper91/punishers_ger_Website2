@@ -33,6 +33,11 @@ class CustomUser(AbstractUser):
     is_content_creator = models.BooleanField(default=False, help_text="Auf der /creators-Seite anzeigen?")
     is_featured_creator = models.BooleanField(default=False, help_text="Nur relevant, wenn is_content_creator gesetzt ist: größere Karte in der 'Featured'-Sektion.")
     creator_bio = models.TextField(blank=True, null=True, help_text="Kurzbeschreibung für die Creators-Seite.")
+    # Last live-status seen by twitch_integration/scheduler.py's poller - only
+    # used to detect false->true transitions for Discord "stream live"
+    # announcements (see discord_bot/), not shown anywhere in the UI itself
+    # (the /creators/ endpoint always computes live status fresh, on-demand).
+    last_known_live = models.BooleanField(default=False)
 
     # Das 'team'-Feld wird aus CustomUser entfernt, da es im Player-Modell besser aufgehoben ist.
     team = models.ForeignKey('teams.Team', on_delete=models.SET_NULL, null=True, blank=True, related_name='members')

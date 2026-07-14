@@ -184,6 +184,37 @@ def _get_championship_matches(championship_id: str, client: FaceitClient) -> lis
     return matches
 
 
+def _announce_match_result(match: TeamFaceitMatch) -> None:
+    """Fires a Discord "match result" announcement - called only once per
+    match, the first time its result becomes known (see the previous_result
+    check in sync_league_matches() below). Local import: discord_bot's Redis
+    bridge isn't needed anywhere else in this module, and importing it here
+    avoids a hard module-load-time dependency between these two apps."""
+    from discord_bot.models import AnnouncementChannelMapping
+    from discord_bot.redis_bridge import publish_notification
+
+    team_name = match.league_entry.team.name
+    result_label = "Sieg" if match.result == "win" else "Niederlage"
+    title = f"{result_label}: {team_name} vs. {match.opponent_name or 'Unbekannt'}"
+    score = f"{match.team_score if match.team_score is not None else '?'}:{match.opponent_score if match.opponent_score is not None else '?'}"
+    fields = [{"name": "Ergebnis", "value": score, "inline": True}]
+    if match.map_name:
+        fields.append({"name": "Map", "value": match.map_name, "inline": True})
+
+    mappings = AnnouncementChannelMapping.objects.filter(
+        event_type="match_result", guild__is_active=True
+    ).select_related("guild")
+    for mapping in mappings:
+        publish_notification(
+            event_type="match_result",
+            guild=mapping.guild,
+            channel_id=mapping.channel_id,
+            title=title,
+            description=match.competition_name or "",
+            fields=fields,
+        )
+
+
 def sync_league_matches(league: League, client: FaceitClient) -> dict:
     """Fetch every season (championship) run by this league's FACEIT
     organizer, then match each championship's games against all of our teams
@@ -234,7 +265,14 @@ def sync_league_matches(league: League, client: FaceitClient) -> dict:
             score = results.get("score") or {}
             winner = results.get("winner")
 
-            _, was_created = TeamFaceitMatch.objects.update_or_create(
+            # Captured before the upsert so the Discord "match result"
+            # announcement (see below) only fires the first time a result
+            # becomes known for this match, not on every re-sync.
+            previous_result = TeamFaceitMatch.objects.filter(
+                faceit_match_id=match_id
+            ).values_list('result', flat=True).first()
+
+            match_obj, was_created = TeamFaceitMatch.objects.update_or_create(
                 faceit_match_id=match_id,
                 defaults=dict(
                     league_entry=entry,
@@ -255,6 +293,9 @@ def sync_league_matches(league: League, client: FaceitClient) -> dict:
                 created += 1
             else:
                 updated += 1
+
+            if previous_result is None and match_obj.result is not None:
+                _announce_match_result(match_obj)
             break  # found the entry this match belongs to, no need to check the rest
 
     return {"created": created, "updated": updated}

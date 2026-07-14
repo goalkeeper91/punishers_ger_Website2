@@ -13,3 +13,4 @@ pytesseract==0.3.13
 cryptography==49.0.0
 langdetect==1.0.9
 psycopg[binary]==3.2.4
+redis==8.0.1

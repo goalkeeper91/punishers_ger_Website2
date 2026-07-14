@@ -35,5 +35,6 @@ export default [
   route("/admin/social-stats", "routes/admin/social-stats.tsx"), // Admin: social media reach (org/players/teams)
   route("/admin/site-settings", "routes/admin/site-settings.tsx"), // Admin: hero video + per-page background images
   route("/admin/applications", "routes/admin/applications.tsx"), // Admin/Teammanager: player applications (game-scoped for Teammanagers)
+  route("/admin/discord", "routes/admin/discord.tsx"), // Admin: Discord bot status + announcement channel routing
   route("/admin/audit-log", "routes/admin/audit-log.tsx"), // Admin audit log (superuser-only)
 ] satisfies RouteConfig;

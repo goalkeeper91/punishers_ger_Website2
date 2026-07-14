@@ -119,6 +119,17 @@ FACEIT_SYNC_INTERVAL_MINUTES = int(os.environ.get("FACEIT_SYNC_INTERVAL_MINUTES"
 # our own registered content creators, no user-specific scopes needed.
 TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID") or None
 TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET") or None
+# In-process poller (twitch_integration/scheduler.py) that detects
+# went-live transitions for Discord announcements; set to "0" to disable.
+TWITCH_LIVE_POLL_INTERVAL_MINUTES = int(os.environ.get("TWITCH_LIVE_POLL_INTERVAL_MINUTES", "5"))
+
+# Redis pub/sub bridge to the org's Discord bot (separate deployment, see
+# discord_bot/). The bot and this backend both join the same external
+# `goalkeeper_prod_network` Docker network in production - Redis is a
+# container already reachable there by service name, run as part of that
+# other deployment. See discord_bot/redis_bridge.py.
+DISCORD_REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+DISCORD_REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 
 # Social-media reach stats (see social_stats/). YouTube Data API v3 key from
 # https://console.cloud.google.com/apis/credentials - public read-only, no
@@ -154,6 +165,7 @@ INSTALLED_APPS = [
     'social_stats',
     'site_settings',
     'applications',
+    'discord_bot',
 ]
 
 MIDDLEWARE = [
