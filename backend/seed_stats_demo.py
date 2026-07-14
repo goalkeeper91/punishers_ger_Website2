@@ -32,7 +32,7 @@ def make_team(name, is_main, roster):
 
     players = []
     for i, (ingame_name, role, elo, skill_level) in enumerate(roster):
-        email = f"{ingame_name.lower()}@demo.punishers.gg"
+        email = f"{ingame_name.lower()}@demo.punishersgermany.de"
         user, created = CustomUser.objects.get_or_create(
             email=email,
             defaults={"username": ingame_name.lower(), "first_name": ingame_name, "team": team},
@@ -165,7 +165,7 @@ academy_team, academy_players = make_team(
 )
 
 # Captain account: Teammanager role, assigned to Punishers Main.
-captain_email = "captain.demo@punishers.gg"
+captain_email = "captain.demo@punishersgermany.de"
 captain, created = CustomUser.objects.get_or_create(
     email=captain_email, defaults={"username": "captain_demo", "first_name": "Captain", "team": main_team}
 )

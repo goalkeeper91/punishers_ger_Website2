@@ -100,7 +100,7 @@ export default function ContactPage() {
               <div className="bg-gray-800 p-6 rounded-lg shadow-xl">
                 <h3 className="text-2xl font-bold text-red-600 mb-3">{t("info.email_title")}</h3>
                 <p className="text-gray-300 text-lg">{t("info.email_description")}</p>
-                <a href="mailto:info@punishers-germany.de" className="text-white hover:text-red-600 underline">info@punishers-germany.de</a>
+                <a href="mailto:info@punishersgermany.de" className="text-white hover:text-red-600 underline">info@punishersgermany.de</a>
               </div>
               <div className="bg-gray-800 p-6 rounded-lg shadow-xl">
                 <h3 className="text-2xl font-bold text-red-600 mb-3">{t("info.social_title")}</h3>

@@ -180,7 +180,7 @@ export default function Home() {
             <p className="text-lg text-gray-400 mb-8 max-w-xl mx-auto">
               {t("contact_section.description")}
             </p>
-            <a href="mailto:info@punishers-germany.de" className="inline-block bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">
+            <a href="mailto:info@punishersgermany.de" className="inline-block bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">
               {t("contact_section.cta")}
             </a>
           </div>

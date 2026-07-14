@@ -53,7 +53,7 @@ export default function ImprintPage() {
               <div>
                 <h2 className="text-3xl font-bold text-red-600 mb-4">{t("section2.heading")}</h2>
                 <p className="text-gray-300">
-                  {t("section2.email_label")} <a href="mailto:info@punishers-germany.de" className="text-white hover:text-red-600 underline">info@punishers-germany.de</a>
+                  {t("section2.email_label")} <a href="mailto:info@punishersgermany.de" className="text-white hover:text-red-600 underline">info@punishersgermany.de</a>
                 </p>
               </div>
 

@@ -108,7 +108,7 @@ export default function JoinUsPage() {
               <a href="#" className="inline-block bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">
                 {t("application.form_cta")}
               </a>
-              <a href="mailto:info@punishers-germany.de" className="inline-block bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">
+              <a href="mailto:info@punishersgermany.de" className="inline-block bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors duration-300 shadow-lg">
                 {t("application.email_cta")}
               </a>
             </div>

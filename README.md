@@ -76,12 +76,12 @@ Es gibt **keinen Django REST Framework Layer mehr** – die komplette API läuft
 - Templates liegen unter `backend/users/templates/emails/` (HTML + Text-Variante je Mail, gemeinsames `base_email.html`-Layout).
 - **Kein E-Mail-Anbieter konfiguriert (`EMAIL_HOST` leer) → Mails werden nur in die Server-Konsole geloggt, nichts wird tatsächlich verschickt.** Das ist der Standard in der Entwicklung und erfordert keine Zugangsdaten. Für echten Versand `EMAIL_HOST`/`EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` setzen (siehe Environment-Variablen) – funktioniert mit jedem SMTP-Anbieter, z. B. einem Gmail-Konto mit App-Passwort oder dem kostenlosen Brevo-Tarif (300 Mails/Tag), da die Organisation aktuell keine Sponsoreneinnahmen hat.
 
-#### Produktion einrichten: ausgehender Versand (Brevo) + `info@punishers-germany.de` (Cloudflare Email Routing)
+#### Produktion einrichten: ausgehender Versand (Brevo) + `info@punishersgermany.de` (Cloudflare Email Routing)
 
 Zwei getrennte Dinge, die beide manuell (außerhalb dieses Repos) eingerichtet werden müssen – keins davon lässt sich automatisieren, da beides ein eigenes Konto bzw. Zugriff auf die DNS-Zone der Domain erfordert:
 
 1. **Ausgehend** (das Backend verschickt Aktivierungs-/Passwort-Reset-Mails) – über [Brevo](https://www.brevo.com/), da nur SMTP-Relay ohne Postfach-Hosting-Limit nötig ist (anders als Zoho, das den kostenlosen Tarif auf eine Domain begrenzt):
-   1. Kostenloses Konto bei Brevo anlegen, `punishers-germany.de` als Absender-Domain hinterlegen.
+   1. Kostenloses Konto bei Brevo anlegen, `punishersgermany.de` als Absender-Domain hinterlegen.
    2. Die von Brevo angezeigten SPF-/DKIM-DNS-Einträge bei der Domain (Cloudflare o. ä.) eintragen, Verifizierung abwarten.
    3. *Settings → SMTP & API → SMTP* → neue SMTP-Zugangsdaten erzeugen.
    4. Im Server-`.env` (Repo-Root, siehe `.env.example`) setzen:
@@ -90,13 +90,13 @@ Zwei getrennte Dinge, die beide manuell (außerhalb dieses Repos) eingerichtet w
       EMAIL_PORT=587
       EMAIL_HOST_USER=<von Brevo>
       EMAIL_HOST_PASSWORD=<von Brevo>
-      DEFAULT_FROM_EMAIL=Punishers Germany <no-reply@punishers-germany.de>
+      DEFAULT_FROM_EMAIL=Punishers Germany <no-reply@punishersgermany.de>
       ```
    5. `docker compose up -d` (bzw. beim nächsten automatischen Deploy) – keine Code-Änderung nötig, die Variablen werden 1:1 in den `backend`-Container durchgereicht.
-2. **Eingehend** (jemand schreibt an `info@punishers-germany.de`, die überall im Frontend als Kontaktadresse verlinkt ist) – reine Weiterleitung reicht, kein eigenes Postfach nötig:
+2. **Eingehend** (jemand schreibt an `info@punishersgermany.de`, die überall im Frontend als Kontaktadresse verlinkt ist) – reine Weiterleitung reicht, kein eigenes Postfach nötig:
    1. Domain muss dafür (falls nicht schon so) auf Cloudflare-DNS liegen.
    2. Im Cloudflare-Dashboard: *Email → Email Routing* → aktivieren (setzt die nötigen MX/TXT-Records automatisch).
-   3. Eine Weiterleitungsregel `info@punishers-germany.de` → bestehendes persönliches Postfach anlegen.
+   3. Eine Weiterleitungsregel `info@punishersgermany.de` → bestehendes persönliches Postfach anlegen.
 
 Beides ist unabhängig voneinander und beeinflusst sich nicht – Brevo verschickt nur, Cloudflare Email Routing empfängt nur.
 
@@ -369,7 +369,7 @@ npm run start
 | `EMAIL_PORT` | SMTP-Port | `587` |
 | `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | SMTP-Zugangsdaten (z. B. Gmail-Adresse + App-Passwort, oder ein kostenloser Anbieter wie Brevo) | leer |
 | `EMAIL_USE_TLS` | TLS beim SMTP-Versand verwenden | `true` |
-| `DEFAULT_FROM_EMAIL` | Absenderadresse | `Punishers Germany <no-reply@punishers.gg>` |
+| `DEFAULT_FROM_EMAIL` | Absenderadresse | `Punishers Germany <no-reply@punishersgermany.de>` |
 | `LIBRETRANSLATE_URL` | Basis-URL einer LibreTranslate-Instanz für automatische News-Übersetzung (`news/translation.py`) | leer (Übersetzung wird übersprungen, Artikel speichert trotzdem) |
 
 **`frontend/.env.development` / `.env.production`** (siehe `frontend/.env.example`):
