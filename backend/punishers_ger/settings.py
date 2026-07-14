@@ -112,7 +112,7 @@ FACEIT_API_KEY = os.environ.get("FACEIT_API_KEY") or None
 FACEIT_DEFAULT_GAME_ID = os.environ.get("FACEIT_DEFAULT_GAME_ID", "cs2")
 # In-process scheduler interval for automatic syncing; set to "0" to disable
 # the background scheduler entirely (e.g. if you only want cron/manual runs).
-FACEIT_SYNC_INTERVAL_MINUTES = int(os.environ.get("FACEIT_SYNC_INTERVAL_MINUTES", "360"))
+FACEIT_SYNC_INTERVAL_MINUTES = int(os.environ.get("FACEIT_SYNC_INTERVAL_MINUTES", "180"))
 
 # Twitch Helix API (see twitch_integration/client.py) - app registered at
 # https://dev.twitch.tv/console. Used only for public live-stream status of

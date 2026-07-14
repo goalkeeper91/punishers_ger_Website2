@@ -528,6 +528,27 @@ def sync_all_solo_matches(client: FaceitClient, game_id: Optional[str] = None) -
     }
 
 
+def sync_single_player(player: Player) -> dict:
+    """One player's lifetime stats, plus their solo match history if
+    they're teamless - run right after a self-service /players/me/ save so
+    a freshly-linked FACEIT profile doesn't sit empty until the next
+    scheduled sync_all() (up to FACEIT_SYNC_INTERVAL_MINUTES later). Meant
+    to be fired from a FastAPI BackgroundTasks call, not awaited inline -
+    never raises, matching every other function in this module."""
+    if not player.faceit_player_id:
+        return {"skipped": "no faceit_player_id"}
+
+    try:
+        client = FaceitClient()
+    except FaceitAPIError as exc:
+        logger.warning("Einzelspieler-Sync übersprungen für '%s': %s", player.ingame_name, exc)
+        return {"error": str(exc)}
+
+    sync_player_stats(player, client)
+    solo_summary = sync_player_solo_matches(player, client) if player.team_id is None else {}
+    return {"synced": True, **solo_summary}
+
+
 # =====================================================================
 # Top-level entry point
 # =====================================================================

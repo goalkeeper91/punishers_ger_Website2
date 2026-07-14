@@ -6,7 +6,7 @@ import re
 import logging
 
 import jwt
-from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File
+from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -1136,7 +1136,7 @@ async def get_my_player(current_user: CustomUser = Depends(get_current_user)):
     return await build_player_schema(player) if player else None
 
 @app.post("/players/me/", response_model=PlayerSchema, status_code=status.HTTP_201_CREATED)
-async def create_my_player(payload: PlayerSelfCreate, current_user: CustomUser = Depends(get_current_user)):
+async def create_my_player(payload: PlayerSelfCreate, background_tasks: BackgroundTasks, current_user: CustomUser = Depends(get_current_user)):
     if await sync_to_async(Player.objects.filter(user=current_user).exists)():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Du hast bereits ein Spielerprofil.")
     if payload.faceit_player_id and await sync_to_async(
@@ -1154,10 +1154,15 @@ async def create_my_player(payload: PlayerSelfCreate, current_user: CustomUser =
         faceit_player_id=payload.faceit_player_id or None,
     )
     await sync_to_async(_log_action)(current_user, "create", "Player", player.id, player.ingame_name, {"self_service": True})
+    if player.faceit_player_id:
+        # Runs after the response is sent (see faceit_sync.sync_single_player)
+        # so the freshly-linked profile doesn't sit empty until the next
+        # scheduled sync_all(), up to FACEIT_SYNC_INTERVAL_MINUTES later.
+        background_tasks.add_task(faceit_sync.sync_single_player, player)
     return await build_player_schema(player)
 
 @app.put("/players/me/", response_model=PlayerSchema)
-async def update_my_player(payload: PlayerSelfUpdate, current_user: CustomUser = Depends(get_current_user)):
+async def update_my_player(payload: PlayerSelfUpdate, background_tasks: BackgroundTasks, current_user: CustomUser = Depends(get_current_user)):
     # select_related required - see get_my_player above for why.
     player = await sync_to_async(Player.objects.select_related('user', 'team').filter(user=current_user).first)()
     if not player:
@@ -1179,6 +1184,8 @@ async def update_my_player(payload: PlayerSelfUpdate, current_user: CustomUser =
 
     await sync_to_async(player.save)(update_fields=list(data.keys()))
     await sync_to_async(_log_action)(current_user, "update", "Player", player.id, player.ingame_name, {"self_service": True, "fields": list(data.keys())})
+    if "faceit_player_id" in data and player.faceit_player_id:
+        background_tasks.add_task(faceit_sync.sync_single_player, player)
     return await build_player_schema(player)
 
 @app.post("/users/me/profile_picture/", response_model=CustomUserSchema)
