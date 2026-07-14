@@ -18,7 +18,7 @@ from typing import Optional
 import redis
 from django.conf import settings
 
-from .models import AnnouncementLog, DiscordGuild
+from .models import AnnouncementLog, DiscordGuild, RuleAcceptanceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -104,3 +104,56 @@ def publish_notification(
         error_message=error_message[:500],
     )
     return success
+
+
+def _publish_reload_configs(guild_id: str, config_type: str, extra: dict) -> None:
+    payload = {"type": "RELOAD_CONFIGS", "guild_id": str(guild_id), "config_type": config_type, **extra}
+    try:
+        client = get_redis_client()
+        client.publish(EVENTS_CHANNEL, json.dumps(payload))
+    except redis.RedisError as exc:
+        logger.warning("Config-Sync (%s) für Guild %s fehlgeschlagen: %s", config_type, guild_id, exc)
+
+
+def publish_guild_config(guild: DiscordGuild) -> None:
+    """Pushes this guild's current Join-to-Create triggers and rule-role
+    config to the bot as two RELOAD_CONFIGS messages (see bot-plattform's
+    listeners/redis_listener.py, which now branches on config_type). Called
+    on every dashboard save AND periodically by discord_bot/scheduler.py -
+    Redis pub/sub has no replay, so a bot that restarted after the last save
+    needs the periodic push to eventually converge. Never raises; a Redis
+    outage just means the bot keeps running on its last-known config until
+    the next successful push - same degrade-gracefully contract as
+    publish_notification() above.
+
+    Field names in `triggers` intentionally match bot-plattform's
+    events/voice_events.py config dict exactly (channel_name_prefix,
+    private_channel, ...), not this app's own model field names - that
+    dict is fed directly into the bot's existing, unchanged
+    create-on-join/delete-when-empty logic."""
+    triggers = [
+        {
+            "channel_id": t.trigger_channel_id,
+            "category_id": t.category_id,
+            "channel_name_prefix": t.name_prefix,
+            "user_limit": t.user_limit or 0,
+            "private_channel": t.is_private,
+            "enabled": True,
+        }
+        for t in guild.voice_triggers.all()
+    ]
+    _publish_reload_configs(guild.guild_id, "join_to_create", {"triggers": triggers})
+
+    try:
+        rule_role = guild.rule_role
+    except RuleAcceptanceConfig.DoesNotExist:
+        rule_role = None
+    config = None
+    if rule_role and rule_role.enabled:
+        config = {
+            "channel_id": rule_role.rules_channel_id,
+            "message_id": rule_role.message_id,
+            "emoji": rule_role.emoji,
+            "role_id": rule_role.role_id,
+        }
+    _publish_reload_configs(guild.guild_id, "rule_role", {"config": config})

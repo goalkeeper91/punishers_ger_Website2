@@ -29,9 +29,16 @@ from users.emails import send_account_activated_email, send_password_reset_email
 from sponsors.models import Sponsor, SocialLink
 from site_settings.models import SiteSettings, PageBackground
 from applications.models import PlayerApplication
-from discord_bot.models import DiscordGuild, AnnouncementChannelMapping, AnnouncementLog
+from discord_bot.models import (
+    DiscordGuild,
+    AnnouncementChannelMapping,
+    AnnouncementLog,
+    VoiceChannelTrigger,
+    RuleAcceptanceConfig,
+)
 from discord_bot import redis_bridge as discord_redis_bridge
 from discord_bot.listener import start_listener as start_discord_listener, stop_listener as stop_discord_listener
+from discord_bot.scheduler import start_scheduler as start_discord_config_scheduler, stop_scheduler as stop_discord_config_scheduler
 from faceit_integration import sync as faceit_sync
 from faceit_integration.client import FaceitClient, FaceitAPIError
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
@@ -176,11 +183,13 @@ async def lifespan(app: FastAPI):
     start_social_stats_scheduler()
     start_twitch_live_scheduler()
     start_discord_listener()
+    start_discord_config_scheduler()
     yield
     stop_scheduler()
     stop_social_stats_scheduler()
     stop_twitch_live_scheduler()
     stop_discord_listener()
+    stop_discord_config_scheduler()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -2651,6 +2660,20 @@ class DiscordChannelMappingSchema(BaseModel):
     channel_id: str
     channel_label: Optional[str] = None
 
+class VoiceTriggerSchema(BaseModel):
+    trigger_channel_id: str
+    category_id: str
+    name_prefix: str = "Voice"
+    user_limit: Optional[int] = None
+    is_private: bool = False
+
+class RuleRoleSchema(BaseModel):
+    rules_channel_id: str
+    message_id: str
+    emoji: str = "✅"
+    role_id: str
+    enabled: bool = True
+
 class DiscordGuildSchema(BaseModel):
     guild_id: str
     name: str
@@ -2658,9 +2681,14 @@ class DiscordGuildSchema(BaseModel):
     member_count: int
     last_seen_at: str
     channel_mappings: List[DiscordChannelMappingSchema]
+    voice_triggers: List[VoiceTriggerSchema] = []
+    rule_role: Optional[RuleRoleSchema] = None
 
 class DiscordChannelMappingsUpdate(BaseModel):
     mappings: List[DiscordChannelMappingSchema]
+
+class VoiceTriggersUpdate(BaseModel):
+    triggers: List[VoiceTriggerSchema]
 
 class DiscordAnnounceRequest(BaseModel):
     guild_id: str
@@ -2688,7 +2716,29 @@ class DiscordBotStatusSchema(BaseModel):
 
 DISCORD_EVENT_TYPES = {choice[0] for choice in AnnouncementChannelMapping.EVENT_TYPE_CHOICES}
 
+def _prefetch_discord_guilds(qs):
+    """Every relation build_discord_guild_schema() touches, prefetched/
+    select_related up front - callers of that function must always use a
+    queryset built this way (or re-fetch through it) and only ever call it
+    from inside a sync_to_async-wrapped function. A guild fetched without
+    this and passed to build_discord_guild_schema from plain async code
+    trips Django's SynchronousOnlyOperation guard on the lazy .rule_role/
+    .voice_triggers access - see the manual-announce endpoint's history."""
+    return qs.prefetch_related('channel_mappings', 'voice_triggers').select_related('rule_role')
+
 def build_discord_guild_schema(guild: DiscordGuild) -> DiscordGuildSchema:
+    rule_role = None
+    try:
+        rr = guild.rule_role
+        rule_role = RuleRoleSchema(
+            rules_channel_id=rr.rules_channel_id,
+            message_id=rr.message_id,
+            emoji=rr.emoji,
+            role_id=rr.role_id,
+            enabled=rr.enabled,
+        )
+    except RuleAcceptanceConfig.DoesNotExist:
+        pass
     return DiscordGuildSchema(
         guild_id=guild.guild_id,
         name=guild.name,
@@ -2701,6 +2751,17 @@ def build_discord_guild_schema(guild: DiscordGuild) -> DiscordGuildSchema:
             )
             for m in guild.channel_mappings.all()
         ],
+        voice_triggers=[
+            VoiceTriggerSchema(
+                trigger_channel_id=t.trigger_channel_id,
+                category_id=t.category_id,
+                name_prefix=t.name_prefix,
+                user_limit=t.user_limit,
+                is_private=t.is_private,
+            )
+            for t in guild.voice_triggers.all()
+        ],
+        rule_role=rule_role,
     )
 
 @app.get("/admin/discord/status/", response_model=DiscordBotStatusSchema)
@@ -2718,9 +2779,9 @@ async def get_discord_bot_status(current_user: CustomUser = Depends(require_perm
 @app.get("/admin/discord/guilds/", response_model=List[DiscordGuildSchema])
 async def get_discord_guilds(current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot"))):
     def _collect():
-        return list(DiscordGuild.objects.filter(is_active=True).prefetch_related('channel_mappings').order_by('name'))
-    guilds = await sync_to_async(_collect)()
-    return [build_discord_guild_schema(g) for g in guilds]
+        qs = _prefetch_discord_guilds(DiscordGuild.objects.filter(is_active=True)).order_by('name')
+        return [build_discord_guild_schema(g) for g in qs]
+    return await sync_to_async(_collect)()
 
 @app.put("/admin/discord/guilds/{guild_id}/channels/", response_model=DiscordGuildSchema)
 async def update_discord_channel_mappings(
@@ -2744,11 +2805,76 @@ async def update_discord_channel_mappings(
                 event_type=mapping.event_type,
                 defaults={"channel_id": mapping.channel_id, "channel_label": mapping.channel_label or ""},
             )
-        return DiscordGuild.objects.prefetch_related('channel_mappings').get(id=guild.id)
+        return build_discord_guild_schema(_prefetch_discord_guilds(DiscordGuild.objects).get(id=guild.id))
 
-    guild = await sync_to_async(_save)()
+    guild_schema = await sync_to_async(_save)()
     await sync_to_async(_log_action)(current_user, "update", "DiscordGuild", guild.id, guild.name, {"fields": ["channel_mappings"]})
-    return build_discord_guild_schema(guild)
+    return guild_schema
+
+@app.put("/admin/discord/guilds/{guild_id}/voice-triggers/", response_model=DiscordGuildSchema)
+async def update_discord_voice_triggers(
+    guild_id: str,
+    payload: VoiceTriggersUpdate,
+    current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot")),
+):
+    try:
+        guild = await sync_to_async(DiscordGuild.objects.get)(guild_id=guild_id, is_active=True)
+    except DiscordGuild.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discord-Server nicht gefunden")
+
+    def _save():
+        # Full replace, not merge - the dashboard is the single source of
+        # truth pushed to the bot (see redis_bridge.publish_guild_config),
+        # so a removed row here must also disappear from the bot's config.
+        VoiceChannelTrigger.objects.filter(guild=guild).delete()
+        VoiceChannelTrigger.objects.bulk_create([
+            VoiceChannelTrigger(
+                guild=guild,
+                trigger_channel_id=t.trigger_channel_id,
+                category_id=t.category_id,
+                name_prefix=t.name_prefix or "Voice",
+                user_limit=t.user_limit,
+                is_private=t.is_private,
+            )
+            for t in payload.triggers
+        ])
+        refreshed = _prefetch_discord_guilds(DiscordGuild.objects).get(id=guild.id)
+        discord_redis_bridge.publish_guild_config(refreshed)
+        return build_discord_guild_schema(refreshed)
+
+    guild_schema = await sync_to_async(_save)()
+    await sync_to_async(_log_action)(current_user, "update", "DiscordGuild", guild.id, guild.name, {"fields": ["voice_triggers"]})
+    return guild_schema
+
+@app.put("/admin/discord/guilds/{guild_id}/rule-role/", response_model=DiscordGuildSchema)
+async def update_discord_rule_role(
+    guild_id: str,
+    payload: RuleRoleSchema,
+    current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot")),
+):
+    try:
+        guild = await sync_to_async(DiscordGuild.objects.get)(guild_id=guild_id, is_active=True)
+    except DiscordGuild.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discord-Server nicht gefunden")
+
+    def _save():
+        RuleAcceptanceConfig.objects.update_or_create(
+            guild=guild,
+            defaults={
+                "rules_channel_id": payload.rules_channel_id,
+                "message_id": payload.message_id,
+                "emoji": payload.emoji or "✅",
+                "role_id": payload.role_id,
+                "enabled": payload.enabled,
+            },
+        )
+        refreshed = _prefetch_discord_guilds(DiscordGuild.objects).get(id=guild.id)
+        discord_redis_bridge.publish_guild_config(refreshed)
+        return build_discord_guild_schema(refreshed)
+
+    guild_schema = await sync_to_async(_save)()
+    await sync_to_async(_log_action)(current_user, "update", "DiscordGuild", guild.id, guild.name, {"fields": ["rule_role"]})
+    return guild_schema
 
 @app.post("/admin/discord/announce/", response_model=DiscordAnnouncementLogSchema, status_code=status.HTTP_201_CREATED)
 async def send_discord_announcement(

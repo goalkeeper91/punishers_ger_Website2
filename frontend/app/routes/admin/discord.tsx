@@ -11,6 +11,22 @@ interface ChannelMapping {
   channel_label: string | null;
 }
 
+interface VoiceTrigger {
+  trigger_channel_id: string;
+  category_id: string;
+  name_prefix: string;
+  user_limit: number | null;
+  is_private: boolean;
+}
+
+interface RuleRole {
+  rules_channel_id: string;
+  message_id: string;
+  emoji: string;
+  role_id: string;
+  enabled: boolean;
+}
+
 interface DiscordGuild {
   guild_id: string;
   name: string;
@@ -18,6 +34,8 @@ interface DiscordGuild {
   member_count: number;
   last_seen_at: string;
   channel_mappings: ChannelMapping[];
+  voice_triggers: VoiceTrigger[];
+  rule_role: RuleRole | null;
 }
 
 interface BotStatus {
@@ -135,6 +153,63 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       return { success: "Kanäle gespeichert." };
     }
 
+    if (intent === "save-voice-triggers") {
+      const guildId = formData.get("guild_id");
+      const triggersJson = formData.get("triggers_json");
+      if (typeof guildId !== "string" || typeof triggersJson !== "string") {
+        return { error: "Invalid form submission." };
+      }
+      let triggers: unknown;
+      try {
+        triggers = JSON.parse(triggersJson);
+      } catch {
+        return { error: "Ungültige Trigger-Daten." };
+      }
+      const response = await authFetch(`/admin/discord/guilds/${guildId}/voice-triggers/`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ triggers }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: "Sprachkanal-Trigger gespeichert." };
+    }
+
+    if (intent === "save-rule-role") {
+      const guildId = formData.get("guild_id");
+      const rulesChannelId = formData.get("rules_channel_id");
+      const messageId = formData.get("message_id");
+      const emoji = formData.get("emoji");
+      const roleId = formData.get("role_id");
+      const enabled = formData.get("enabled") === "on";
+      if (
+        typeof guildId !== "string" ||
+        typeof rulesChannelId !== "string" || !rulesChannelId.trim() ||
+        typeof messageId !== "string" || !messageId.trim() ||
+        typeof roleId !== "string" || !roleId.trim()
+      ) {
+        return { error: "Bitte Regeln-Kanal-ID, Nachrichten-ID und Rollen-ID angeben." };
+      }
+      const response = await authFetch(`/admin/discord/guilds/${guildId}/rule-role/`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rules_channel_id: rulesChannelId.trim(),
+          message_id: messageId.trim(),
+          emoji: (typeof emoji === "string" && emoji.trim()) || "✅",
+          role_id: roleId.trim(),
+          enabled,
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: "Regel-Akzeptanz gespeichert." };
+    }
+
     if (intent === "announce") {
       const guildId = formData.get("guild_id");
       const channelId = formData.get("channel_id");
@@ -166,6 +241,156 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
     return { error: error.message || "Ein Fehler ist aufgetreten." };
   }
 };
+
+const inputClass =
+  "block w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded-md text-white text-sm focus:outline-none focus:ring-red-500 focus:border-red-500";
+
+function emptyTrigger(): VoiceTrigger {
+  return { trigger_channel_id: "", category_id: "", name_prefix: "Voice", user_limit: null, is_private: false };
+}
+
+/** Temporäre Sprachkanäle (Join-to-Create): a variable-length list of
+ * trigger channels, kept in local state and serialized into one hidden
+ * JSON field on submit - the individual rows aren't real form fields since
+ * their count changes at runtime. */
+function VoiceTriggersEditor({ guildId, initial }: { guildId: string; initial: VoiceTrigger[] }) {
+  const [triggers, setTriggers] = useState<VoiceTrigger[]>(initial);
+
+  const updateTrigger = (index: number, patch: Partial<VoiceTrigger>) => {
+    setTriggers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
+  };
+  const removeTrigger = (index: number) => {
+    setTriggers((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  return (
+    <Form method="post" className="space-y-3 mt-4 pt-4 border-t border-gray-700">
+      <input type="hidden" name="intent" value="save-voice-triggers" />
+      <input type="hidden" name="guild_id" value={guildId} />
+      <input type="hidden" name="triggers_json" value={JSON.stringify(triggers)} />
+      <h4 className="text-sm font-semibold text-gray-200">Temporäre Sprachkanäle</h4>
+      {triggers.length === 0 && (
+        <p className="text-xs text-gray-400">Kein Trigger-Kanal konfiguriert.</p>
+      )}
+      {triggers.map((trigger, index) => (
+        <div key={index} className="grid gap-2 sm:grid-cols-5 items-end bg-gray-900/40 rounded-md p-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Trigger-Kanal-ID</label>
+            <input
+              type="text"
+              value={trigger.trigger_channel_id}
+              onChange={(e) => updateTrigger(index, { trigger_channel_id: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Ziel-Kategorie-ID</label>
+            <input
+              type="text"
+              value={trigger.category_id}
+              onChange={(e) => updateTrigger(index, { category_id: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Namens-Präfix</label>
+            <input
+              type="text"
+              value={trigger.name_prefix}
+              onChange={(e) => updateTrigger(index, { name_prefix: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Nutzerlimit</label>
+            <input
+              type="number"
+              min={0}
+              value={trigger.user_limit ?? ""}
+              onChange={(e) => updateTrigger(index, { user_limit: e.target.value ? Number(e.target.value) : null })}
+              placeholder="kein Limit"
+              className={inputClass}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-gray-300">
+              <input
+                type="checkbox"
+                checked={trigger.is_private}
+                onChange={(e) => updateTrigger(index, { is_private: e.target.checked })}
+                className="rounded border-gray-600 bg-gray-700 text-red-600 focus:ring-red-500"
+              />
+              privat
+            </label>
+            <button
+              type="button"
+              onClick={() => removeTrigger(index)}
+              className="text-red-400 text-xs hover:text-red-300"
+            >
+              Entfernen
+            </button>
+          </div>
+        </div>
+      ))}
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={() => setTriggers((prev) => [...prev, emptyTrigger()])}
+          className="py-1 px-3 rounded-md text-white text-xs font-semibold bg-gray-600 hover:bg-gray-500"
+        >
+          + Trigger hinzufügen
+        </button>
+        <button type="submit" className="py-1 px-3 rounded-md text-white text-xs font-semibold bg-red-600 hover:bg-red-700">
+          Speichern
+        </button>
+      </div>
+    </Form>
+  );
+}
+
+/** Regel-Akzeptanz: reaction-role that assigns a role when a member reacts
+ * to a specific message with a specific emoji - see the Discord setup guide
+ * for how the rules message itself is created (manually, by an admin). */
+function RuleRoleForm({ guildId, initial }: { guildId: string; initial: RuleRole | null }) {
+  return (
+    <Form method="post" className="grid gap-3 sm:grid-cols-2 mt-4 pt-4 border-t border-gray-700">
+      <input type="hidden" name="intent" value="save-rule-role" />
+      <input type="hidden" name="guild_id" value={guildId} />
+      <h4 className="text-sm font-semibold text-gray-200 sm:col-span-2">Regel-Akzeptanz</h4>
+      <div>
+        <label className="block text-xs font-medium text-gray-300">Regeln-Kanal-ID</label>
+        <input type="text" name="rules_channel_id" defaultValue={initial?.rules_channel_id || ""} className={inputClass} />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-300">Nachrichten-ID</label>
+        <input type="text" name="message_id" defaultValue={initial?.message_id || ""} className={inputClass} />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-300">Emoji</label>
+        <input type="text" name="emoji" defaultValue={initial?.emoji || "✅"} className={inputClass} />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-300">Rollen-ID</label>
+        <input type="text" name="role_id" defaultValue={initial?.role_id || ""} className={inputClass} />
+      </div>
+      <div className="sm:col-span-2 flex items-center gap-2">
+        <input
+          type="checkbox"
+          name="enabled"
+          id={`rule-role-enabled-${guildId}`}
+          defaultChecked={initial?.enabled ?? true}
+          className="rounded border-gray-600 bg-gray-700 text-red-600 focus:ring-red-500"
+        />
+        <label htmlFor={`rule-role-enabled-${guildId}`} className="text-xs text-gray-300">Aktiv</label>
+      </div>
+      <div className="sm:col-span-2">
+        <button type="submit" className="py-1 px-3 rounded-md text-white text-xs font-semibold bg-red-600 hover:bg-red-700">
+          Speichern
+        </button>
+      </div>
+    </Form>
+  );
+}
 
 export default function AdminDiscordPage() {
   const { botStatus, guilds, log, error: loaderError } = useLoaderData() as {
@@ -288,6 +513,9 @@ export default function AdminDiscordPage() {
                       </button>
                     </div>
                   </Form>
+
+                  <VoiceTriggersEditor guildId={guild.guild_id} initial={guild.voice_triggers} />
+                  <RuleRoleForm guildId={guild.guild_id} initial={guild.rule_role} />
                 </div>
               );
             })}

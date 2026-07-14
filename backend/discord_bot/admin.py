@@ -1,9 +1,25 @@
 from django.contrib import admin
-from .models import DiscordGuild, AnnouncementChannelMapping, AnnouncementLog
+from .models import (
+    DiscordGuild,
+    AnnouncementChannelMapping,
+    AnnouncementLog,
+    VoiceChannelTrigger,
+    RuleAcceptanceConfig,
+)
 
 
 class AnnouncementChannelMappingInline(admin.TabularInline):
     model = AnnouncementChannelMapping
+    extra = 0
+
+
+class VoiceChannelTriggerInline(admin.TabularInline):
+    model = VoiceChannelTrigger
+    extra = 0
+
+
+class RuleAcceptanceConfigInline(admin.StackedInline):
+    model = RuleAcceptanceConfig
     extra = 0
 
 
@@ -13,7 +29,7 @@ class DiscordGuildAdmin(admin.ModelAdmin):
     list_filter = ('is_active',)
     search_fields = ('name', 'guild_id')
     readonly_fields = ('last_seen_at',)
-    inlines = [AnnouncementChannelMappingInline]
+    inlines = [AnnouncementChannelMappingInline, VoiceChannelTriggerInline, RuleAcceptanceConfigInline]
 
 
 @admin.register(AnnouncementLog)

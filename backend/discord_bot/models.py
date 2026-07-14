@@ -80,3 +80,49 @@ class AnnouncementLog(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.created_at:%Y-%m-%d %H:%M})"
+
+
+class VoiceChannelTrigger(models.Model):
+    """One "join this channel and get your own temporary voice channel"
+    trigger. The actual create-on-join/delete-when-empty logic already lives
+    in bot-plattform's events/voice_events.py - this row only gets pushed to
+    the bot over Redis (see redis_bridge.publish_guild_config) so it knows
+    which channels are triggers and how to configure what it creates."""
+
+    guild = models.ForeignKey(DiscordGuild, on_delete=models.CASCADE, related_name="voice_triggers")
+    trigger_channel_id = models.CharField(max_length=32)
+    category_id = models.CharField(max_length=32, help_text="Kategorie, in der die neuen Kanäle entstehen.")
+    name_prefix = models.CharField(max_length=50, default="Voice")
+    user_limit = models.PositiveSmallIntegerField(null=True, blank=True, help_text="Leer = kein Limit.")
+    is_private = models.BooleanField(default=False, help_text="Nur der Ersteller sieht/betritt den Kanal.")
+
+    class Meta:
+        verbose_name = "Sprachkanal-Trigger"
+        verbose_name_plural = "Sprachkanal-Trigger"
+        unique_together = [("guild", "trigger_channel_id")]
+
+    def __str__(self):
+        return f"{self.guild.name} / {self.trigger_channel_id}"
+
+
+class RuleAcceptanceConfig(models.Model):
+    """Reaction-role used to grant the "Verified Member" (or similar) role
+    when a user reacts to the rules message - see bot-plattform's
+    events/rule_role_events.py. The admin creates/pins the actual message in
+    Discord by hand and pastes its ID here (same manual-ID pattern as
+    AnnouncementChannelMapping.channel_id - the bot doesn't expose a live
+    message picker)."""
+
+    guild = models.OneToOneField(DiscordGuild, on_delete=models.CASCADE, related_name="rule_role")
+    rules_channel_id = models.CharField(max_length=32)
+    message_id = models.CharField(max_length=32)
+    emoji = models.CharField(max_length=16, default="✅")
+    role_id = models.CharField(max_length=32)
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Regel-Akzeptanz"
+        verbose_name_plural = "Regel-Akzeptanz"
+
+    def __str__(self):
+        return f"{self.guild.name} / Regel-Akzeptanz"

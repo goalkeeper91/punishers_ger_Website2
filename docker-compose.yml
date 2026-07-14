@@ -74,6 +74,7 @@ services:
       # network below) - see discord_bot/redis_bridge.py.
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
+      DISCORD_CONFIG_SYNC_INTERVAL_MINUTES: ${DISCORD_CONFIG_SYNC_INTERVAL_MINUTES:-5}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
       EMAIL_HOST: ${EMAIL_HOST:-}
       EMAIL_PORT: ${EMAIL_PORT:-587}
