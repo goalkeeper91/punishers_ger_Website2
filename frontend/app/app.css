@@ -1,7 +1,14 @@
 @import "tailwindcss";
 
+/* Self-hosted (not loaded from Google's CDN - avoids sending visitor IPs to
+   Google on every page load, which German courts have flagged as requiring
+   consent otherwise). Covers the same weight/italic/optical-size axes the
+   old Google Fonts URL requested. */
+@import "@fontsource-variable/inter/standard.css";
+@import "@fontsource-variable/inter/standard-italic.css";
+
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
