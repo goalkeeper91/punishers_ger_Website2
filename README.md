@@ -76,6 +76,30 @@ Es gibt **keinen Django REST Framework Layer mehr** – die komplette API läuft
 - Templates liegen unter `backend/users/templates/emails/` (HTML + Text-Variante je Mail, gemeinsames `base_email.html`-Layout).
 - **Kein E-Mail-Anbieter konfiguriert (`EMAIL_HOST` leer) → Mails werden nur in die Server-Konsole geloggt, nichts wird tatsächlich verschickt.** Das ist der Standard in der Entwicklung und erfordert keine Zugangsdaten. Für echten Versand `EMAIL_HOST`/`EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` setzen (siehe Environment-Variablen) – funktioniert mit jedem SMTP-Anbieter, z. B. einem Gmail-Konto mit App-Passwort oder dem kostenlosen Brevo-Tarif (300 Mails/Tag), da die Organisation aktuell keine Sponsoreneinnahmen hat.
 
+#### Produktion einrichten: ausgehender Versand (Brevo) + `info@punishers-germany.de` (Cloudflare Email Routing)
+
+Zwei getrennte Dinge, die beide manuell (außerhalb dieses Repos) eingerichtet werden müssen – keins davon lässt sich automatisieren, da beides ein eigenes Konto bzw. Zugriff auf die DNS-Zone der Domain erfordert:
+
+1. **Ausgehend** (das Backend verschickt Aktivierungs-/Passwort-Reset-Mails) – über [Brevo](https://www.brevo.com/), da nur SMTP-Relay ohne Postfach-Hosting-Limit nötig ist (anders als Zoho, das den kostenlosen Tarif auf eine Domain begrenzt):
+   1. Kostenloses Konto bei Brevo anlegen, `punishers-germany.de` als Absender-Domain hinterlegen.
+   2. Die von Brevo angezeigten SPF-/DKIM-DNS-Einträge bei der Domain (Cloudflare o. ä.) eintragen, Verifizierung abwarten.
+   3. *Settings → SMTP & API → SMTP* → neue SMTP-Zugangsdaten erzeugen.
+   4. Im Server-`.env` (Repo-Root, siehe `.env.example`) setzen:
+      ```
+      EMAIL_HOST=smtp-relay.brevo.com
+      EMAIL_PORT=587
+      EMAIL_HOST_USER=<von Brevo>
+      EMAIL_HOST_PASSWORD=<von Brevo>
+      DEFAULT_FROM_EMAIL=Punishers Germany <no-reply@punishers-germany.de>
+      ```
+   5. `docker compose up -d` (bzw. beim nächsten automatischen Deploy) – keine Code-Änderung nötig, die Variablen werden 1:1 in den `backend`-Container durchgereicht.
+2. **Eingehend** (jemand schreibt an `info@punishers-germany.de`, die überall im Frontend als Kontaktadresse verlinkt ist) – reine Weiterleitung reicht, kein eigenes Postfach nötig:
+   1. Domain muss dafür (falls nicht schon so) auf Cloudflare-DNS liegen.
+   2. Im Cloudflare-Dashboard: *Email → Email Routing* → aktivieren (setzt die nötigen MX/TXT-Records automatisch).
+   3. Eine Weiterleitungsregel `info@punishers-germany.de` → bestehendes persönliches Postfach anlegen.
+
+Beides ist unabhängig voneinander und beeinflusst sich nicht – Brevo verschickt nur, Cloudflare Email Routing empfängt nur.
+
 ### Admin-Dashboard (Frontend `/admin/*`, erfordert mindestens eine passende Rolle/Permission)
 
 Welche Bereiche sichtbar sind, entscheidet `~/lib/adminNav.ts` (gemeinsam genutzt von `AdminNav` und der Profil-Sidebar) anhand von Rolle **und** den unten beschriebenen Permissions – nicht mehr pauschal "Admin oder eine feste Rolle".
@@ -335,7 +359,7 @@ npm run start
 | `ENCRYPTION_KEY` | Fernet-Schlüssel zur Verschlüsselung gespeicherter OAuth-Tokens (`social_stats/crypto.py`) – mit `Fernet.generate_key()` erzeugen | wird deterministisch aus `DJANGO_SECRET_KEY` abgeleitet |
 | `FACEIT_API_KEY` | Server-Side API Key von [developers.faceit.com](https://developers.faceit.com/) | leer (Sync liefert dann einen Fehler statt zu crashen) |
 | `FACEIT_DEFAULT_GAME_ID` | FACEIT-Spiel-ID für Stats-Abfragen | `cs2` |
-| `FACEIT_SYNC_INTERVAL_MINUTES` | Intervall des In-Prozess-Schedulers; `0` deaktiviert ihn | `360` |
+| `FACEIT_SYNC_INTERVAL_MINUTES` | Intervall des In-Prozess-Schedulers; `0` deaktiviert ihn | `180` |
 | `TWITCH_CLIENT_ID` | App-Client-ID von [dev.twitch.tv/console](https://dev.twitch.tv/console) - für den OAuth-Connect-Flow muss dort zusätzlich `{BACKEND_BASE_URL}/social-stats/twitch/callback/` als Redirect-URI eingetragen werden | leer (`/creators/` liefert dann `live: null`; Twitch-Connect liefert 503 statt zu crashen) |
 | `TWITCH_CLIENT_SECRET` | App-Client-Secret dazu | leer |
 | `YOUTUBE_API_KEY` | API-Key von [console.cloud.google.com](https://console.cloud.google.com/apis/credentials) (YouTube Data API v3 aktivieren) | leer (Social-Stats-Sync überspringt YouTube dann) |
