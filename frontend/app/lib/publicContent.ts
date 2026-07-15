@@ -30,6 +30,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
   youtube: "YouTube",
   twitter: "Twitter",
   instagram: "Instagram",
+  facebook: "Facebook",
   discord: "Discord",
   tiktok: "TikTok",
   other: "Link",

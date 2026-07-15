@@ -171,6 +171,7 @@ INSTALLED_APPS = [
     'site_settings',
     'applications',
     'discord_bot',
+    'social_media',
 ]
 
 MIDDLEWARE = [

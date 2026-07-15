@@ -6,7 +6,7 @@
 
 import { hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "./auth";
 
-export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord";
+export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media";
 
 export interface AdminNavItem {
   key: AdminNavKey;
@@ -31,10 +31,11 @@ export function getAdminNavItems(user: AuthUser | null): AdminNavItem[] {
   const canSiteSettings = hasPerm("site_settings.manage_site_settings");
   const canApplications = hasPerm("applications.manage_applications");
   const canDiscordBot = hasPerm("discord_bot.manage_discord_bot");
+  const canSocialMediaVault = hasPerm("social_media.manage_social_media_vault");
 
   const items: AdminNavItem[] = [];
 
-  if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings || canApplications || canDiscordBot) {
+  if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings || canApplications || canDiscordBot || canSocialMediaVault) {
     items.push({ key: "dashboard", href: "/admin", label: "Dashboard" });
   }
   if (isAdmin) {
@@ -66,6 +67,9 @@ export function getAdminNavItems(user: AuthUser | null): AdminNavItem[] {
   }
   if (isAdmin || canDiscordBot) {
     items.push({ key: "discord", href: "/admin/discord", label: "Discord-Bot" });
+  }
+  if (isAdmin || canSocialMediaVault) {
+    items.push({ key: "social-media", href: "/admin/social-media", label: "Social Media" });
   }
   if (isAdmin) {
     items.push({ key: "audit-log", href: "/admin/audit-log", label: "Audit-Log" });

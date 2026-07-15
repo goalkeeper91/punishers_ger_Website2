@@ -35,6 +35,7 @@ class SocialLink(models.Model):
         ("youtube", "YouTube"),
         ("twitter", "Twitter/X"),
         ("instagram", "Instagram"),
+        ("facebook", "Facebook"),
         ("discord", "Discord"),
         ("tiktok", "TikTok"),
         ("other", "Sonstiges"),

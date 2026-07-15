@@ -25,7 +25,7 @@ interface SocialLink {
   click_count: number;
 }
 
-const PLATFORMS = ["twitch", "youtube", "twitter", "instagram", "discord", "tiktok", "other"];
+const PLATFORMS = ["twitch", "youtube", "twitter", "instagram", "facebook", "discord", "tiktok", "other"];
 
 export const clientLoader: ClientLoaderFunction = async () => {
   if (!isLoggedIn()) {

@@ -39,6 +39,7 @@ from discord_bot.models import (
 from discord_bot import redis_bridge as discord_redis_bridge
 from discord_bot.listener import start_listener as start_discord_listener, stop_listener as stop_discord_listener
 from discord_bot.scheduler import start_scheduler as start_discord_config_scheduler, stop_scheduler as stop_discord_config_scheduler
+from social_media.models import SocialMediaVaultSettings
 from faceit_integration import sync as faceit_sync
 from faceit_integration.client import FaceitClient, FaceitAPIError
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
@@ -2929,6 +2930,24 @@ async def get_discord_announcement_log(
     entries = await sync_to_async(_collect)()
     return [build_discord_log_schema(e) for e in entries]
 
+# --- Social Media Manager: embedded Vaultwarden vault ---
+# PunishersGer never stores or sees credentials itself - this just tells the
+# frontend which self-hosted Vaultwarden instance to embed in an <iframe>
+# (see admin/social-media.tsx). Encryption/decryption stays entirely
+# client-side in that iframe, keyed to each user's own Bitwarden master
+# password - see social_media/models.py for why this is a singleton set once
+# via Django admin rather than an editable field here.
+
+class SocialMediaVaultSchema(BaseModel):
+    vault_url: Optional[str] = None
+
+@app.get("/admin/social-media/vault-url/", response_model=SocialMediaVaultSchema)
+async def get_social_media_vault_url(
+    current_user: CustomUser = Depends(require_permission("social_media.manage_social_media_vault")),
+):
+    settings_obj = await sync_to_async(SocialMediaVaultSettings.load)()
+    return SocialMediaVaultSchema(vault_url=settings_obj.vault_url or None)
+
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every
 # add/change/delete/view permission Django creates per model, which would be
@@ -2941,6 +2960,7 @@ MANAGEABLE_PERMISSIONS: List[tuple[str, str, str]] = [
     ("site_settings", "manage_site_settings", "Hero-Video & Seiten-Hintergründe verwalten"),
     ("applications", "manage_applications", "Bewerbungen einsehen & bearbeiten (alle Spiele)"),
     ("discord_bot", "manage_discord_bot", "Discord-Bot verwalten"),
+    ("social_media", "manage_social_media_vault", "Social-Media-Zugangsdaten verwalten (Vaultwarden)"),
 ]
 
 def _build_role_schema(group: Group) -> RoleSchema:

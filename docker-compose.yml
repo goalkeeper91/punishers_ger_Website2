@@ -108,11 +108,34 @@ services:
       - default
       - shared
 
+  # Self-hosted Bitwarden-compatible vault for the Social Media Manager role's
+  # credential storage (see social_media/ + admin/social-media.tsx). Deliberately
+  # NOT reachable via the `backend` service - PunishersGer never sees plaintext
+  # credentials, only embeds this server's own web vault in an iframe, so
+  # encryption/decryption stays client-side with each user's own master password.
+  # Needs its own subdomain + nginx site + TLS (outside this repo, see README).
+  vaultwarden:
+    image: vaultwarden/server:latest
+    restart: unless-stopped
+    environment:
+      DOMAIN: https://vault.${DOMAIN:-localhost}
+      SIGNUPS_ALLOWED: "false"
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN:?Set VAULTWARDEN_ADMIN_TOKEN in .env}
+      # Lets our own domain embed the web vault in an <iframe> (see
+      # admin/social-media.tsx) - without this Vaultwarden's default CSP
+      # blocks being framed by anything.
+      ALLOWED_IFRAME_ANCESTORS: https://${DOMAIN:-localhost}
+    volumes:
+      - vaultwarden_data:/data
+    networks:
+      - shared
+
 volumes:
   postgres_data:
   libretranslate_data:
   media_data:
   staticfiles_data:
+  vaultwarden_data:
 
 networks:
   default:
