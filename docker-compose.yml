@@ -125,6 +125,10 @@ services:
       # admin/social-media.tsx) - without this Vaultwarden's default CSP
       # blocks being framed by anything.
       ALLOWED_IFRAME_ANCESTORS: https://${DOMAIN:-localhost}
+      # SMTP is deliberately NOT configured here - Vaultwarden's own /admin
+      # panel has a runtime-editable "SMTP Email Settings" section that
+      # writes straight to its persistent /data volume, taking precedence
+      # over env vars anyway. Set it up there instead of here.
     volumes:
       - vaultwarden_data:/data
     networks:

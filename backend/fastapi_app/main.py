@@ -440,7 +440,11 @@ class NewsArticleUpdate(BaseModel):
     status: Optional[str] = None
 
 SPONSOR_TIERS = {"premium", "general"}
-SOCIAL_PLATFORMS = {"twitch", "youtube", "twitter", "instagram", "discord", "tiktok", "other"}
+# Derived from the model's own choices, not hardcoded a second time here -
+# a hardcoded duplicate of this list is exactly what caused "facebook" to be
+# selectable in the admin UI but rejected with a 400 on save (the model's
+# PLATFORM_CHOICES was updated, this separate copy wasn't).
+SOCIAL_PLATFORMS = {choice[0] for choice in SocialLink.PLATFORM_CHOICES}
 
 class SponsorSchema(BaseModel):
     id: int
@@ -2935,17 +2939,37 @@ async def get_discord_announcement_log(
 # frontend which self-hosted Vaultwarden instance to embed in an <iframe>
 # (see admin/social-media.tsx). Encryption/decryption stays entirely
 # client-side in that iframe, keyed to each user's own Bitwarden master
-# password - see social_media/models.py for why this is a singleton set once
-# via Django admin rather than an editable field here.
+# password. Set via the PUT endpoint below (superuser-only, one-time infra
+# config) rather than Django admin - Django's admin.site.urls exists
+# (punishers_ger/urls.py) but isn't mounted anywhere in this ASGI app, so
+# it's unreachable in this deployment.
 
 class SocialMediaVaultSchema(BaseModel):
     vault_url: Optional[str] = None
+
+class SocialMediaVaultUpdate(BaseModel):
+    vault_url: str
 
 @app.get("/admin/social-media/vault-url/", response_model=SocialMediaVaultSchema)
 async def get_social_media_vault_url(
     current_user: CustomUser = Depends(require_permission("social_media.manage_social_media_vault")),
 ):
     settings_obj = await sync_to_async(SocialMediaVaultSettings.load)()
+    return SocialMediaVaultSchema(vault_url=settings_obj.vault_url or None)
+
+@app.put("/admin/social-media/vault-url/", response_model=SocialMediaVaultSchema)
+async def update_social_media_vault_url(
+    payload: SocialMediaVaultUpdate,
+    current_admin: CustomUser = Depends(get_current_admin_user),
+):
+    def _save():
+        settings_obj = SocialMediaVaultSettings.load()
+        settings_obj.vault_url = payload.vault_url.strip()
+        settings_obj.save()
+        return settings_obj
+
+    settings_obj = await sync_to_async(_save)()
+    await sync_to_async(_log_action)(current_admin, "update", "SocialMediaVaultSettings", settings_obj.id, "vault_url")
     return SocialMediaVaultSchema(vault_url=settings_obj.vault_url or None)
 
 # Curated subset of the auto-generated Django permissions that actually
