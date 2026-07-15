@@ -131,7 +131,7 @@ TWITCH_LIVE_POLL_INTERVAL_MINUTES = int(os.environ.get("TWITCH_LIVE_POLL_INTERVA
 DISCORD_REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 DISCORD_REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 # In-process scheduler (discord_bot/scheduler.py) that periodically re-pushes
-# guild config (Join-to-Create triggers, rule-role) to the bot, since Redis
+# guild config (Join-to-Create triggers, reaction-roles) to the bot, since Redis
 # pub/sub has no replay for a bot that restarts after the last dashboard
 # save. Set to "0" to disable.
 DISCORD_CONFIG_SYNC_INTERVAL_MINUTES = int(os.environ.get("DISCORD_CONFIG_SYNC_INTERVAL_MINUTES", "5"))

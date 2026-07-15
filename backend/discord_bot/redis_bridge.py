@@ -18,7 +18,7 @@ from typing import Optional
 import redis
 from django.conf import settings
 
-from .models import AnnouncementLog, DiscordGuild, RuleAcceptanceConfig
+from .models import AnnouncementLog, DiscordGuild
 
 logger = logging.getLogger(__name__)
 
@@ -116,9 +116,9 @@ def _publish_reload_configs(guild_id: str, config_type: str, extra: dict) -> Non
 
 
 def publish_guild_config(guild: DiscordGuild) -> None:
-    """Pushes this guild's current Join-to-Create triggers and rule-role
-    config to the bot as two RELOAD_CONFIGS messages (see bot-plattform's
-    listeners/redis_listener.py, which now branches on config_type). Called
+    """Pushes this guild's current Join-to-Create triggers and reaction-role
+    mappings to the bot as two RELOAD_CONFIGS messages (see bot-plattform's
+    listeners/redis_listener.py, which branches on config_type). Called
     on every dashboard save AND periodically by discord_bot/scheduler.py -
     Redis pub/sub has no replay, so a bot that restarted after the last save
     needs the periodic push to eventually converge. Never raises; a Redis
@@ -130,7 +130,13 @@ def publish_guild_config(guild: DiscordGuild) -> None:
     events/voice_events.py config dict exactly (channel_name_prefix,
     private_channel, ...), not this app's own model field names - that
     dict is fed directly into the bot's existing, unchanged
-    create-on-join/delete-when-empty logic."""
+    create-on-join/delete-when-empty logic.
+
+    `reaction_roles` is a full-replace list (same semantics as `triggers`
+    above), covering both rule-acceptance (removable=False) and
+    self-assignable community roles (removable=True) - see
+    events/reaction_role_events.py in bot-plattform, which unifies both
+    behind one on_raw_reaction_add/remove handler pair."""
     triggers = [
         {
             "channel_id": t.trigger_channel_id,
@@ -144,16 +150,14 @@ def publish_guild_config(guild: DiscordGuild) -> None:
     ]
     _publish_reload_configs(guild.guild_id, "join_to_create", {"triggers": triggers})
 
-    try:
-        rule_role = guild.rule_role
-    except RuleAcceptanceConfig.DoesNotExist:
-        rule_role = None
-    config = None
-    if rule_role and rule_role.enabled:
-        config = {
-            "channel_id": rule_role.rules_channel_id,
-            "message_id": rule_role.message_id,
-            "emoji": rule_role.emoji,
-            "role_id": rule_role.role_id,
+    roles = [
+        {
+            "channel_id": r.channel_id,
+            "message_id": r.message_id,
+            "emoji": r.emoji,
+            "role_id": r.role_id,
+            "removable": r.removable,
         }
-    _publish_reload_configs(guild.guild_id, "rule_role", {"config": config})
+        for r in guild.reaction_roles.filter(enabled=True)
+    ]
+    _publish_reload_configs(guild.guild_id, "reaction_roles", {"roles": roles})

@@ -9,6 +9,7 @@ import {
   fetchMatchHighlights,
   fetchMainTeams,
   fetchCreators,
+  fetchDiscordInviteUrl,
   type Sponsor,
   type MatchHighlight,
   type TeamTeaser,
@@ -24,23 +25,25 @@ export const meta: MetaFunction = () => {
 };
 
 export const loader: LoaderFunction = async () => {
-  const [sponsors, matchHighlights, heroVideoUrl, mainTeams, creators] = await Promise.all([
+  const [sponsors, matchHighlights, heroVideoUrl, mainTeams, creators, discordUrl] = await Promise.all([
     fetchActiveSponsors(),
     fetchMatchHighlights(),
     fetchHeroVideoUrl(),
     fetchMainTeams(),
     fetchCreators(),
+    fetchDiscordInviteUrl(),
   ]);
-  return { sponsors, matchHighlights, heroVideoUrl, mainTeams, creators };
+  return { sponsors, matchHighlights, heroVideoUrl, mainTeams, creators, discordUrl };
 };
 
 export default function Home() {
-  const { sponsors, matchHighlights, heroVideoUrl, mainTeams, creators } = useLoaderData() as {
+  const { sponsors, matchHighlights, heroVideoUrl, mainTeams, creators, discordUrl } = useLoaderData() as {
     sponsors: Sponsor[];
     matchHighlights: MatchHighlight[];
     heroVideoUrl: string | null;
     mainTeams: TeamTeaser[];
     creators: Creator[];
+    discordUrl: string | null;
   };
   const featuredCreators = creators.filter((c) => c.is_featured).slice(0, 3);
   const teaserTeams = mainTeams.slice(0, 3);
@@ -165,7 +168,12 @@ export default function Home() {
               <div className="bg-gray-800 rounded-lg shadow-xl p-8 transform hover:scale-105 transition-transform duration-300">
                 <h3 className="text-3xl font-bold text-red-600 mb-4">{t("join_section.community_title")}</h3>
                 <p className="text-gray-300 mb-6">{t("join_section.community_description")}</p>
-                <a href="#" className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-full transition-colors duration-300">
+                <a
+                  href={discordUrl || "/join-us"}
+                  target={discordUrl ? "_blank" : undefined}
+                  rel={discordUrl ? "noopener noreferrer" : undefined}
+                  className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-full transition-colors duration-300"
+                >
                   {t("join_section.community_cta")}
                 </a>
               </div>

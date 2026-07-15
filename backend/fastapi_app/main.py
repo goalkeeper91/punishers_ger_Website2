@@ -34,7 +34,7 @@ from discord_bot.models import (
     AnnouncementChannelMapping,
     AnnouncementLog,
     VoiceChannelTrigger,
-    RuleAcceptanceConfig,
+    ReactionRole,
 )
 from discord_bot import redis_bridge as discord_redis_bridge
 from discord_bot.listener import start_listener as start_discord_listener, stop_listener as stop_discord_listener
@@ -2672,11 +2672,13 @@ class VoiceTriggerSchema(BaseModel):
     user_limit: Optional[int] = None
     is_private: bool = False
 
-class RuleRoleSchema(BaseModel):
-    rules_channel_id: str
+class ReactionRoleSchema(BaseModel):
+    channel_id: str
     message_id: str
     emoji: str = "✅"
     role_id: str
+    label: str = ""
+    removable: bool = True
     enabled: bool = True
 
 class DiscordGuildSchema(BaseModel):
@@ -2687,13 +2689,16 @@ class DiscordGuildSchema(BaseModel):
     last_seen_at: str
     channel_mappings: List[DiscordChannelMappingSchema]
     voice_triggers: List[VoiceTriggerSchema] = []
-    rule_role: Optional[RuleRoleSchema] = None
+    reaction_roles: List[ReactionRoleSchema] = []
 
 class DiscordChannelMappingsUpdate(BaseModel):
     mappings: List[DiscordChannelMappingSchema]
 
 class VoiceTriggersUpdate(BaseModel):
     triggers: List[VoiceTriggerSchema]
+
+class ReactionRolesUpdate(BaseModel):
+    reaction_roles: List[ReactionRoleSchema]
 
 class DiscordAnnounceRequest(BaseModel):
     guild_id: str
@@ -2722,28 +2727,16 @@ class DiscordBotStatusSchema(BaseModel):
 DISCORD_EVENT_TYPES = {choice[0] for choice in AnnouncementChannelMapping.EVENT_TYPE_CHOICES}
 
 def _prefetch_discord_guilds(qs):
-    """Every relation build_discord_guild_schema() touches, prefetched/
-    select_related up front - callers of that function must always use a
-    queryset built this way (or re-fetch through it) and only ever call it
-    from inside a sync_to_async-wrapped function. A guild fetched without
-    this and passed to build_discord_guild_schema from plain async code
-    trips Django's SynchronousOnlyOperation guard on the lazy .rule_role/
+    """Every relation build_discord_guild_schema() touches, prefetched
+    up front - callers of that function must always use a queryset built
+    this way (or re-fetch through it) and only ever call it from inside a
+    sync_to_async-wrapped function. A guild fetched without this and passed
+    to build_discord_guild_schema from plain async code trips Django's
+    SynchronousOnlyOperation guard on the lazy .reaction_roles/
     .voice_triggers access - see the manual-announce endpoint's history."""
-    return qs.prefetch_related('channel_mappings', 'voice_triggers').select_related('rule_role')
+    return qs.prefetch_related('channel_mappings', 'voice_triggers', 'reaction_roles')
 
 def build_discord_guild_schema(guild: DiscordGuild) -> DiscordGuildSchema:
-    rule_role = None
-    try:
-        rr = guild.rule_role
-        rule_role = RuleRoleSchema(
-            rules_channel_id=rr.rules_channel_id,
-            message_id=rr.message_id,
-            emoji=rr.emoji,
-            role_id=rr.role_id,
-            enabled=rr.enabled,
-        )
-    except RuleAcceptanceConfig.DoesNotExist:
-        pass
     return DiscordGuildSchema(
         guild_id=guild.guild_id,
         name=guild.name,
@@ -2766,7 +2759,18 @@ def build_discord_guild_schema(guild: DiscordGuild) -> DiscordGuildSchema:
             )
             for t in guild.voice_triggers.all()
         ],
-        rule_role=rule_role,
+        reaction_roles=[
+            ReactionRoleSchema(
+                channel_id=r.channel_id,
+                message_id=r.message_id,
+                emoji=r.emoji,
+                role_id=r.role_id,
+                label=r.label,
+                removable=r.removable,
+                enabled=r.enabled,
+            )
+            for r in guild.reaction_roles.all()
+        ],
     )
 
 @app.get("/admin/discord/status/", response_model=DiscordBotStatusSchema)
@@ -2851,10 +2855,10 @@ async def update_discord_voice_triggers(
     await sync_to_async(_log_action)(current_user, "update", "DiscordGuild", guild.id, guild.name, {"fields": ["voice_triggers"]})
     return guild_schema
 
-@app.put("/admin/discord/guilds/{guild_id}/rule-role/", response_model=DiscordGuildSchema)
-async def update_discord_rule_role(
+@app.put("/admin/discord/guilds/{guild_id}/reaction-roles/", response_model=DiscordGuildSchema)
+async def update_discord_reaction_roles(
     guild_id: str,
-    payload: RuleRoleSchema,
+    payload: ReactionRolesUpdate,
     current_user: CustomUser = Depends(require_permission("discord_bot.manage_discord_bot")),
 ):
     try:
@@ -2862,23 +2866,36 @@ async def update_discord_rule_role(
     except DiscordGuild.DoesNotExist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discord-Server nicht gefunden")
 
+    seen = set()
+    for r in payload.reaction_roles:
+        key = (r.message_id, r.emoji)
+        if key in seen:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Doppelte Emoji/Nachricht-Kombination: {r.emoji} auf {r.message_id}")
+        seen.add(key)
+
     def _save():
-        RuleAcceptanceConfig.objects.update_or_create(
-            guild=guild,
-            defaults={
-                "rules_channel_id": payload.rules_channel_id,
-                "message_id": payload.message_id,
-                "emoji": payload.emoji or "✅",
-                "role_id": payload.role_id,
-                "enabled": payload.enabled,
-            },
-        )
+        # Full replace, not merge - same rationale as voice triggers above:
+        # the dashboard is the single source of truth pushed to the bot.
+        ReactionRole.objects.filter(guild=guild).delete()
+        ReactionRole.objects.bulk_create([
+            ReactionRole(
+                guild=guild,
+                channel_id=r.channel_id,
+                message_id=r.message_id,
+                emoji=r.emoji or "✅",
+                role_id=r.role_id,
+                label=r.label or "",
+                removable=r.removable,
+                enabled=r.enabled,
+            )
+            for r in payload.reaction_roles
+        ])
         refreshed = _prefetch_discord_guilds(DiscordGuild.objects).get(id=guild.id)
         discord_redis_bridge.publish_guild_config(refreshed)
         return build_discord_guild_schema(refreshed)
 
     guild_schema = await sync_to_async(_save)()
-    await sync_to_async(_log_action)(current_user, "update", "DiscordGuild", guild.id, guild.name, {"fields": ["rule_role"]})
+    await sync_to_async(_log_action)(current_user, "update", "DiscordGuild", guild.id, guild.name, {"fields": ["reaction_roles"]})
     return guild_schema
 
 @app.post("/admin/discord/announce/", response_model=DiscordAnnouncementLogSchema, status_code=status.HTTP_201_CREATED)

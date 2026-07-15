@@ -11,14 +11,18 @@ import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { fetchPageBackground } from "~/lib/siteSettings";
+import { fetchDiscordInviteUrl } from "~/lib/publicContent";
 
 export const loader: LoaderFunction = async () => {
-  const backgroundUrl = await fetchPageBackground("join_us");
-  return { backgroundUrl };
+  const [backgroundUrl, discordUrl] = await Promise.all([
+    fetchPageBackground("join_us"),
+    fetchDiscordInviteUrl(),
+  ]);
+  return { backgroundUrl, discordUrl };
 };
 
 export default function JoinUsPage() {
-  const { backgroundUrl } = useLoaderData() as { backgroundUrl: string | null };
+  const { backgroundUrl, discordUrl } = useLoaderData() as { backgroundUrl: string | null; discordUrl: string | null };
   const { t } = useTranslation("join_us");
 
   return (
@@ -89,7 +93,12 @@ export default function JoinUsPage() {
                   <li>{t("opportunities.community.perk3")}</li>
                   <li>{t("opportunities.community.perk4")}</li>
                 </ul>
-                <a href="#" className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-full transition-colors duration-300">
+                <a
+                  href={discordUrl || "#"}
+                  target={discordUrl ? "_blank" : undefined}
+                  rel={discordUrl ? "noopener noreferrer" : undefined}
+                  className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-full transition-colors duration-300"
+                >
                   {t("opportunities.community.cta")}
                 </a>
               </div>

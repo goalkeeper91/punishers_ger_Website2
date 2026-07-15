@@ -65,6 +65,14 @@ export async function fetchActiveSocialLinks(): Promise<SocialLink[]> {
   }
 }
 
+/** The org's Discord invite link, wherever a page needs it directly (join-us
+ * CTAs, contact page icon, ...) rather than the full footer list - null
+ * until an admin adds a "discord" entry under /admin/sponsors. */
+export async function fetchDiscordInviteUrl(): Promise<string | null> {
+  const links = await fetchActiveSocialLinks();
+  return links.find((link) => link.platform === "discord")?.url ?? null;
+}
+
 export interface TeamTeaser {
   id: number;
   name: string;

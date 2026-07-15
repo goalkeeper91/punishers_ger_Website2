@@ -105,24 +105,38 @@ class VoiceChannelTrigger(models.Model):
         return f"{self.guild.name} / {self.trigger_channel_id}"
 
 
-class RuleAcceptanceConfig(models.Model):
-    """Reaction-role used to grant the "Verified Member" (or similar) role
-    when a user reacts to the rules message - see bot-plattform's
-    events/rule_role_events.py. The admin creates/pins the actual message in
-    Discord by hand and pastes its ID here (same manual-ID pattern as
-    AnnouncementChannelMapping.channel_id - the bot doesn't expose a live
-    message picker)."""
+class ReactionRole(models.Model):
+    """A message+emoji -> role mapping. Generalizes what used to be the
+    single-purpose RuleAcceptanceConfig (rule acceptance is now just one row
+    with removable=False) to also support self-assignable community roles,
+    e.g. one row per game on a "pick your games" message with removable=True
+    so removing the reaction also removes the role. See bot-plattform's
+    events/reaction_role_events.py, which unifies both use cases behind one
+    on_raw_reaction_add/remove handler pair. The admin creates/pins the
+    actual message in Discord by hand and pastes its ID here (same
+    manual-ID pattern as AnnouncementChannelMapping.channel_id - the bot
+    doesn't expose a live message picker)."""
 
-    guild = models.OneToOneField(DiscordGuild, on_delete=models.CASCADE, related_name="rule_role")
-    rules_channel_id = models.CharField(max_length=32)
+    guild = models.ForeignKey(DiscordGuild, on_delete=models.CASCADE, related_name="reaction_roles")
+    channel_id = models.CharField(max_length=32)
     message_id = models.CharField(max_length=32)
     emoji = models.CharField(max_length=16, default="✅")
     role_id = models.CharField(max_length=32)
+    label = models.CharField(
+        max_length=100, blank=True,
+        help_text="Admin-Notiz, z.B. \"CS2\" oder \"Regeln akzeptiert\" - wird nicht an Discord gesendet.",
+    )
+    removable = models.BooleanField(
+        default=True,
+        help_text="Rolle wird auch entfernt, wenn die Reaction entfernt wird. Bei Regel-Akzeptanz deaktivieren.",
+    )
     enabled = models.BooleanField(default=True)
 
     class Meta:
-        verbose_name = "Regel-Akzeptanz"
-        verbose_name_plural = "Regel-Akzeptanz"
+        verbose_name = "Reaction-Role"
+        verbose_name_plural = "Reaction-Roles"
+        unique_together = [("guild", "message_id", "emoji")]
+        ordering = ["guild__name", "label"]
 
     def __str__(self):
-        return f"{self.guild.name} / Regel-Akzeptanz"
+        return f"{self.guild.name} / {self.label or self.emoji}"

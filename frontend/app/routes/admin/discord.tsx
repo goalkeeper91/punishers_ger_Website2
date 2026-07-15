@@ -19,11 +19,13 @@ interface VoiceTrigger {
   is_private: boolean;
 }
 
-interface RuleRole {
-  rules_channel_id: string;
+interface ReactionRole {
+  channel_id: string;
   message_id: string;
   emoji: string;
   role_id: string;
+  label: string;
+  removable: boolean;
   enabled: boolean;
 }
 
@@ -35,7 +37,7 @@ interface DiscordGuild {
   last_seen_at: string;
   channel_mappings: ChannelMapping[];
   voice_triggers: VoiceTrigger[];
-  rule_role: RuleRole | null;
+  reaction_roles: ReactionRole[];
 }
 
 interface BotStatus {
@@ -177,37 +179,28 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       return { success: "Sprachkanal-Trigger gespeichert." };
     }
 
-    if (intent === "save-rule-role") {
+    if (intent === "save-reaction-roles") {
       const guildId = formData.get("guild_id");
-      const rulesChannelId = formData.get("rules_channel_id");
-      const messageId = formData.get("message_id");
-      const emoji = formData.get("emoji");
-      const roleId = formData.get("role_id");
-      const enabled = formData.get("enabled") === "on";
-      if (
-        typeof guildId !== "string" ||
-        typeof rulesChannelId !== "string" || !rulesChannelId.trim() ||
-        typeof messageId !== "string" || !messageId.trim() ||
-        typeof roleId !== "string" || !roleId.trim()
-      ) {
-        return { error: "Bitte Regeln-Kanal-ID, Nachrichten-ID und Rollen-ID angeben." };
+      const rolesJson = formData.get("reaction_roles_json");
+      if (typeof guildId !== "string" || typeof rolesJson !== "string") {
+        return { error: "Invalid form submission." };
       }
-      const response = await authFetch(`/admin/discord/guilds/${guildId}/rule-role/`, {
+      let reaction_roles: unknown;
+      try {
+        reaction_roles = JSON.parse(rolesJson);
+      } catch {
+        return { error: "Ungültige Reaction-Role-Daten." };
+      }
+      const response = await authFetch(`/admin/discord/guilds/${guildId}/reaction-roles/`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rules_channel_id: rulesChannelId.trim(),
-          message_id: messageId.trim(),
-          emoji: (typeof emoji === "string" && emoji.trim()) || "✅",
-          role_id: roleId.trim(),
-          enabled,
-        }),
+        body: JSON.stringify({ reaction_roles }),
       });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
       }
-      return { success: "Regel-Akzeptanz gespeichert." };
+      return { success: "Reaction-Roles gespeichert." };
     }
 
     if (intent === "announce") {
@@ -348,42 +341,122 @@ function VoiceTriggersEditor({ guildId, initial }: { guildId: string; initial: V
   );
 }
 
-/** Regel-Akzeptanz: reaction-role that assigns a role when a member reacts
- * to a specific message with a specific emoji - see the Discord setup guide
- * for how the rules message itself is created (manually, by an admin). */
-function RuleRoleForm({ guildId, initial }: { guildId: string; initial: RuleRole | null }) {
+function emptyReactionRole(): ReactionRole {
+  return { channel_id: "", message_id: "", emoji: "✅", role_id: "", label: "", removable: true, enabled: true };
+}
+
+/** Reaction-Roles: a variable-length list of message+emoji -> role mappings
+ * (e.g. Regel-Akzeptanz with "entfernbar" off, plus one row per Game auf
+ * einer "Wähle deine Spiele"-Nachricht mit "entfernbar" an) - same
+ * local-state/hidden-JSON pattern as VoiceTriggersEditor above. The admin
+ * creates/pins the actual message in Discord by hand and pastes its ID
+ * here (the bot doesn't expose a live message picker). */
+function ReactionRolesEditor({ guildId, initial }: { guildId: string; initial: ReactionRole[] }) {
+  const [roles, setRoles] = useState<ReactionRole[]>(initial);
+
+  const updateRole = (index: number, patch: Partial<ReactionRole>) => {
+    setRoles((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  };
+  const removeRole = (index: number) => {
+    setRoles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   return (
-    <Form method="post" className="grid gap-3 sm:grid-cols-2 mt-4 pt-4 border-t border-gray-700">
-      <input type="hidden" name="intent" value="save-rule-role" />
+    <Form method="post" className="space-y-3 mt-4 pt-4 border-t border-gray-700">
+      <input type="hidden" name="intent" value="save-reaction-roles" />
       <input type="hidden" name="guild_id" value={guildId} />
-      <h4 className="text-sm font-semibold text-gray-200 sm:col-span-2">Regel-Akzeptanz</h4>
-      <div>
-        <label className="block text-xs font-medium text-gray-300">Regeln-Kanal-ID</label>
-        <input type="text" name="rules_channel_id" defaultValue={initial?.rules_channel_id || ""} className={inputClass} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-300">Nachrichten-ID</label>
-        <input type="text" name="message_id" defaultValue={initial?.message_id || ""} className={inputClass} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-300">Emoji</label>
-        <input type="text" name="emoji" defaultValue={initial?.emoji || "✅"} className={inputClass} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-300">Rollen-ID</label>
-        <input type="text" name="role_id" defaultValue={initial?.role_id || ""} className={inputClass} />
-      </div>
-      <div className="sm:col-span-2 flex items-center gap-2">
-        <input
-          type="checkbox"
-          name="enabled"
-          id={`rule-role-enabled-${guildId}`}
-          defaultChecked={initial?.enabled ?? true}
-          className="rounded border-gray-600 bg-gray-700 text-red-600 focus:ring-red-500"
-        />
-        <label htmlFor={`rule-role-enabled-${guildId}`} className="text-xs text-gray-300">Aktiv</label>
-      </div>
-      <div className="sm:col-span-2">
+      <input type="hidden" name="reaction_roles_json" value={JSON.stringify(roles)} />
+      <h4 className="text-sm font-semibold text-gray-200">Reaction-Roles</h4>
+      {roles.length === 0 && (
+        <p className="text-xs text-gray-400">Keine Reaction-Role konfiguriert.</p>
+      )}
+      {roles.map((role, index) => (
+        <div key={index} className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6 items-end bg-gray-900/40 rounded-md p-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Bezeichnung</label>
+            <input
+              type="text"
+              value={role.label}
+              placeholder="z.B. CS2"
+              onChange={(e) => updateRole(index, { label: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Kanal-ID</label>
+            <input
+              type="text"
+              value={role.channel_id}
+              onChange={(e) => updateRole(index, { channel_id: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Nachrichten-ID</label>
+            <input
+              type="text"
+              value={role.message_id}
+              onChange={(e) => updateRole(index, { message_id: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Emoji</label>
+            <input
+              type="text"
+              value={role.emoji}
+              onChange={(e) => updateRole(index, { emoji: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-300">Rollen-ID</label>
+            <input
+              type="text"
+              value={role.role_id}
+              onChange={(e) => updateRole(index, { role_id: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-1.5 text-xs text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={role.removable}
+                  onChange={(e) => updateRole(index, { removable: e.target.checked })}
+                  className="rounded border-gray-600 bg-gray-700 text-red-600 focus:ring-red-500"
+                />
+                entfernbar
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={role.enabled}
+                  onChange={(e) => updateRole(index, { enabled: e.target.checked })}
+                  className="rounded border-gray-600 bg-gray-700 text-red-600 focus:ring-red-500"
+                />
+                aktiv
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={() => removeRole(index)}
+              className="text-red-400 text-xs hover:text-red-300"
+            >
+              Entfernen
+            </button>
+          </div>
+        </div>
+      ))}
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={() => setRoles((prev) => [...prev, emptyReactionRole()])}
+          className="py-1 px-3 rounded-md text-white text-xs font-semibold bg-gray-600 hover:bg-gray-500"
+        >
+          + Reaction-Role hinzufügen
+        </button>
         <button type="submit" className="py-1 px-3 rounded-md text-white text-xs font-semibold bg-red-600 hover:bg-red-700">
           Speichern
         </button>
@@ -515,7 +588,7 @@ export default function AdminDiscordPage() {
                   </Form>
 
                   <VoiceTriggersEditor guildId={guild.guild_id} initial={guild.voice_triggers} />
-                  <RuleRoleForm guildId={guild.guild_id} initial={guild.rule_role} />
+                  <ReactionRolesEditor guildId={guild.guild_id} initial={guild.reaction_roles} />
                 </div>
               );
             })}

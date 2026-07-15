@@ -1,5 +1,5 @@
 """In-process periodic re-push of guild config (Join-to-Create triggers +
-rule-role) to the Discord bot. Mirrors faceit_integration/scheduler.py's
+reaction-roles) to the Discord bot. Mirrors faceit_integration/scheduler.py's
 shape. Exists because Redis pub/sub has no replay: a bot that restarts after
 the last dashboard save would otherwise never see the current config again
 until an admin re-saves something - this closes that gap by re-publishing

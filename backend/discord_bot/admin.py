@@ -4,7 +4,7 @@ from .models import (
     AnnouncementChannelMapping,
     AnnouncementLog,
     VoiceChannelTrigger,
-    RuleAcceptanceConfig,
+    ReactionRole,
 )
 
 
@@ -18,8 +18,8 @@ class VoiceChannelTriggerInline(admin.TabularInline):
     extra = 0
 
 
-class RuleAcceptanceConfigInline(admin.StackedInline):
-    model = RuleAcceptanceConfig
+class ReactionRoleInline(admin.TabularInline):
+    model = ReactionRole
     extra = 0
 
 
@@ -29,7 +29,7 @@ class DiscordGuildAdmin(admin.ModelAdmin):
     list_filter = ('is_active',)
     search_fields = ('name', 'guild_id')
     readonly_fields = ('last_seen_at',)
-    inlines = [AnnouncementChannelMappingInline, VoiceChannelTriggerInline, RuleAcceptanceConfigInline]
+    inlines = [AnnouncementChannelMappingInline, VoiceChannelTriggerInline, ReactionRoleInline]
 
 
 @admin.register(AnnouncementLog)

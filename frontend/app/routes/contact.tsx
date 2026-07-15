@@ -11,14 +11,18 @@ import type { LoaderFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { fetchPageBackground } from "~/lib/siteSettings";
+import { fetchDiscordInviteUrl } from "~/lib/publicContent";
 
 export const loader: LoaderFunction = async () => {
-  const backgroundUrl = await fetchPageBackground("contact");
-  return { backgroundUrl };
+  const [backgroundUrl, discordUrl] = await Promise.all([
+    fetchPageBackground("contact"),
+    fetchDiscordInviteUrl(),
+  ]);
+  return { backgroundUrl, discordUrl };
 };
 
 export default function ContactPage() {
-  const { backgroundUrl } = useLoaderData() as { backgroundUrl: string | null };
+  const { backgroundUrl, discordUrl } = useLoaderData() as { backgroundUrl: string | null; discordUrl: string | null };
   const { t } = useTranslation("contact");
 
   return (
@@ -108,7 +112,9 @@ export default function ContactPage() {
                 <div className="flex justify-center space-x-4 mt-3">
                   <a href="#" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-red-600 text-2xl"><i className="fab fa-twitter"></i></a> {/* Placeholder for icon */}
                   <a href="#" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-red-600 text-2xl"><i className="fab fa-instagram"></i></a> {/* Placeholder for icon */}
-                  <a href="#" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-red-600 text-2xl"><i className="fab fa-discord"></i></a> {/* Placeholder for icon */}
+                  {discordUrl && (
+                    <a href={discordUrl} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-red-600 text-2xl"><i className="fab fa-discord"></i></a>
+                  )}
                 </div>
               </div>
             </div>
