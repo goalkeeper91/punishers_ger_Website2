@@ -396,7 +396,7 @@ export default function AdminUsersPage() {
                           {user.is_active ? 'Deaktivieren' : 'Aktivieren'}
                         </button>
                       </Form>
-                      {user.activated_at === null ? (
+                      {user.activated_at === null && !user.is_active ? (
                         <Form
                           method="post"
                           onSubmit={(e) => { if (!confirm(`Konto "${user.username}" endgültig löschen? Das kann nicht rückgängig gemacht werden.`)) e.preventDefault(); }}

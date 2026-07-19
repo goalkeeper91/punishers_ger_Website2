@@ -1309,7 +1309,12 @@ async def soft_delete_user_account(
         user = await sync_to_async(CustomUser.objects.get)(id=user_id)
     except CustomUser.DoesNotExist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if user.activated_at is None:
+    if not user.is_active and user.activated_at is None:
+        # Mirror image of delete_user_account's eligibility check - a
+        # currently-active account that happens to have no activated_at
+        # stamp (e.g. seeded directly in the DB, never through
+        # activate_user) must still go through soft-delete, not fall into a
+        # gap where neither endpoint accepts it.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Konto wurde noch nie aktiviert. Nutze stattdessen die endgültige Löschfunktion.")
     if user.is_deleted:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Konto ist bereits gelöscht.")
