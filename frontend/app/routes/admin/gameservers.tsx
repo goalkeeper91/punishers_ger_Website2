@@ -21,9 +21,25 @@ interface ServerSlot {
   kind: "pracc" | "util";
   docker_container_name: string;
   port: number;
+  current_config_id: number | null;
   last_known_status: "unknown" | "creating" | "running" | "stopped" | "starting" | "stopping";
   last_synced_at: string | null;
 }
+
+interface ServerConfig {
+  id: number;
+  label: string;
+  kind: "pracc" | "util" | "map_pool";
+  description: string;
+  file_url: string | null;
+  created_at: string;
+}
+
+const CONFIG_KIND_LABELS: Record<ServerConfig["kind"], string> = {
+  pracc: "Pracc",
+  util: "Util",
+  map_pool: "Map-Pool",
+};
 
 const STATUS_LABELS: Record<HetznerVPS["last_known_status"], string> = {
   unknown: "Unbekannt",
@@ -69,11 +85,12 @@ export const clientLoader: ClientLoaderFunction = async () => {
     throw redirect("/login");
   }
 
-  const [vpsResponse, slotsResponse] = await Promise.all([
+  const [vpsResponse, slotsResponse, configsResponse] = await Promise.all([
     authFetch("/admin/gameservers/vps/"),
     authFetch("/admin/gameservers/slots/"),
+    authFetch("/admin/gameservers/configs/"),
   ]);
-  for (const response of [vpsResponse, slotsResponse]) {
+  for (const response of [vpsResponse, slotsResponse, configsResponse]) {
     if (!response.ok) {
       if (response.status === 401) throw redirect("/login");
       if (response.status === 403) throw redirect("/admin"); // logged in, just lacks gameservers.manage_gameservers
@@ -82,7 +99,8 @@ export const clientLoader: ClientLoaderFunction = async () => {
   }
   const vps: HetznerVPS | null = await vpsResponse.json();
   const slots: ServerSlot[] = await slotsResponse.json();
-  return { vps, slots };
+  const configs: ServerConfig[] = await configsResponse.json();
+  return { vps, slots, configs };
 };
 
 export function HydrateFallback() {
@@ -195,6 +213,58 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       return { success: "Slot gelöscht." };
     }
 
+    if (intent === "uploadConfig") {
+      const label = formData.get("label");
+      const kind = formData.get("kind");
+      const description = formData.get("description");
+      const file = formData.get("file");
+      if (typeof label !== "string" || !label.trim()) {
+        return { errors: { config_label: "Bezeichnung erforderlich." } };
+      }
+      if (!file || !(file instanceof File) || file.size === 0) {
+        return { errors: { config_file: "Datei erforderlich." } };
+      }
+      const uploadFormData = new FormData();
+      uploadFormData.append("label", label.trim());
+      uploadFormData.append("kind", String(kind));
+      uploadFormData.append("description", typeof description === "string" ? description : "");
+      uploadFormData.append("file", file);
+      const response = await authFetch("/admin/gameservers/configs/", { method: "POST", body: uploadFormData });
+      const data = await response.json();
+      if (!response.ok) {
+        return { errors: { general: extractErrorMessage(data, "Config konnte nicht hochgeladen werden.") } };
+      }
+      return { success: "Config hochgeladen." };
+    }
+
+    if (intent === "deleteConfig") {
+      const configId = formData.get("config_id");
+      const response = await authFetch(`/admin/gameservers/configs/${configId}/`, { method: "DELETE" });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: "Config gelöscht." };
+    }
+
+    if (intent === "loadConfig") {
+      const slotId = formData.get("slot_id");
+      const configId = formData.get("config_id");
+      if (typeof configId !== "string" || !configId) {
+        return { error: "Bitte eine Config auswählen." };
+      }
+      const response = await authFetch(`/admin/gameservers/slots/${slotId}/load-config/`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config_id: Number(configId) }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: "Config wird geladen." };
+    }
+
     return { error: "Unbekannte Aktion." };
   } catch (error: any) {
     console.error("Admin gameservers action failed:", error);
@@ -203,7 +273,11 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
 };
 
 export default function AdminGameserversPage() {
-  const { vps: initialVps, slots: initialSlots } = useLoaderData() as { vps: HetznerVPS | null; slots: ServerSlot[] };
+  const { vps: initialVps, slots: initialSlots, configs: initialConfigs } = useLoaderData() as {
+    vps: HetznerVPS | null;
+    slots: ServerSlot[];
+    configs: ServerConfig[];
+  };
   const actionData = useActionData() as
     | { error?: string; success?: string; errors?: { [key: string]: string } }
     | undefined;
@@ -214,6 +288,7 @@ export default function AdminGameserversPage() {
   // online dot.
   const [vps, setVps] = useState<HetznerVPS | null>(initialVps);
   const [slots, setSlots] = useState<ServerSlot[]>(initialSlots);
+  const [configs, setConfigs] = useState<ServerConfig[]>(initialConfigs);
   useEffect(() => {
     // Re-sync when the loader revalidates (e.g. right after the "configure"
     // action creates the VPS row) - local state only tracked the value from
@@ -224,6 +299,9 @@ export default function AdminGameserversPage() {
   useEffect(() => {
     setSlots(initialSlots);
   }, [initialSlots]);
+  useEffect(() => {
+    setConfigs(initialConfigs);
+  }, [initialConfigs]);
   useEffect(() => {
     if (!vps) return;
     const interval = setInterval(async () => {
@@ -366,10 +444,38 @@ export default function AdminGameserversPage() {
                       </p>
                       <p className="text-gray-500 text-xs">
                         {SLOT_STATUS_LABELS[slot.last_known_status]} · Port {slot.port} · {slot.docker_container_name}
+                        {slot.current_config_id != null && (
+                          <> · Config: {configs.find((c) => c.id === slot.current_config_id)?.label ?? `#${slot.current_config_id}`}</>
+                        )}
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
+                  <div className="flex gap-2 flex-shrink-0 flex-wrap items-center">
+                    <Form method="post" className="flex gap-2 items-center">
+                      <input type="hidden" name="_intent" value="loadConfig" />
+                      <input type="hidden" name="slot_id" value={slot.id} />
+                      <select
+                        name="config_id"
+                        defaultValue=""
+                        className="py-1.5 px-2 rounded-md bg-gray-700 border border-gray-600 text-white text-xs focus:outline-none focus:ring-red-500 focus:border-red-500"
+                      >
+                        <option value="" disabled>
+                          Config wählen…
+                        </option>
+                        {configs.map((config) => (
+                          <option key={config.id} value={config.id}>
+                            {config.label} ({CONFIG_KIND_LABELS[config.kind]})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        disabled={configs.length === 0}
+                        className="py-1.5 px-3 rounded-md text-white text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Laden
+                      </button>
+                    </Form>
                     <Form method="post">
                       <input type="hidden" name="_intent" value="startSlot" />
                       <input type="hidden" name="slot_id" value={slot.id} />
@@ -469,6 +575,110 @@ export default function AdminGameserversPage() {
               <div className="sm:col-span-4">
                 <button type="submit" className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700">
                   Slot anlegen
+                </button>
+              </div>
+            </Form>
+          </div>
+        )}
+
+        {vps && (
+          <div className="bg-gray-800 rounded-lg shadow-xl p-6 mt-8">
+            <h3 className="text-xl font-bold text-white mb-4">Config-Bibliothek</h3>
+            <ul className="divide-y divide-gray-700 mb-6">
+              {configs.map((config) => (
+                <li key={config.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-white font-medium break-words">
+                      {config.label} <span className="text-gray-400 text-sm">({CONFIG_KIND_LABELS[config.kind]})</span>
+                    </p>
+                    {config.description && <p className="text-gray-500 text-xs break-words">{config.description}</p>}
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    {config.file_url && (
+                      <a
+                        href={config.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="py-1.5 px-3 rounded-md text-white text-xs font-semibold bg-gray-600 hover:bg-gray-500"
+                      >
+                        Datei
+                      </a>
+                    )}
+                    <Form
+                      method="post"
+                      onSubmit={(event) => {
+                        if (!confirm(`Config "${config.label}" wirklich löschen?`)) event.preventDefault();
+                      }}
+                    >
+                      <input type="hidden" name="_intent" value="deleteConfig" />
+                      <input type="hidden" name="config_id" value={config.id} />
+                      <button type="submit" className="py-1.5 px-3 rounded-md text-white text-xs font-semibold bg-red-600 hover:bg-red-700">
+                        Löschen
+                      </button>
+                    </Form>
+                  </div>
+                </li>
+              ))}
+              {configs.length === 0 && <li className="py-3 text-sm text-gray-400">Noch keine Configs hochgeladen.</li>}
+            </ul>
+
+            <h4 className="text-lg font-bold text-white mb-4">Config hochladen</h4>
+            <Form method="post" encType="multipart/form-data" className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+              <input type="hidden" name="_intent" value="uploadConfig" />
+              <div>
+                <label htmlFor="config_label" className="block text-sm font-medium text-gray-300 mb-1">
+                  Bezeichnung <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="config_label"
+                  name="label"
+                  placeholder="Standard Pracc"
+                  required
+                  className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                />
+                {actionData?.errors?.config_label && <p className="mt-1 text-sm text-red-500">{actionData.errors.config_label}</p>}
+              </div>
+              <div>
+                <label htmlFor="config_kind" className="block text-sm font-medium text-gray-300 mb-1">Art</label>
+                <select
+                  id="config_kind"
+                  name="kind"
+                  defaultValue="pracc"
+                  className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                >
+                  <option value="pracc">Pracc</option>
+                  <option value="util">Util</option>
+                  <option value="map_pool">Map-Pool</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="config_description" className="block text-sm font-medium text-gray-300 mb-1">Beschreibung</label>
+                <input
+                  type="text"
+                  id="config_description"
+                  name="description"
+                  placeholder="optional"
+                  className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="config_file" className="block text-sm font-medium text-gray-300 mb-1">
+                  Datei (.cfg/.txt) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="file"
+                  id="config_file"
+                  name="file"
+                  accept=".cfg,.txt"
+                  required
+                  className="block w-full text-sm text-gray-300 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-red-600 file:text-white hover:file:bg-red-700"
+                />
+                {actionData?.errors?.config_file && <p className="mt-1 text-sm text-red-500">{actionData.errors.config_file}</p>}
+              </div>
+              <div className="sm:col-span-4">
+                <button type="submit" className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700">
+                  Hochladen
                 </button>
               </div>
             </Form>

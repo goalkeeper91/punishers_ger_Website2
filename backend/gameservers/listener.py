@@ -63,6 +63,27 @@ def _handle_message(payload: dict) -> None:
                 logger.info("Slot-Status aktualisiert: %s -> %s", slot_id, new_status)
             else:
                 logger.warning("SLOT_STATUS_CHANGED für unbekannte slot_id: %s", slot_id)
+
+        elif event == "CONFIG_LOADED":
+            slot_id = payload.get("slot_id")
+            config_id = payload.get("config_id")
+            success = payload.get("success", True)
+            if not slot_id:
+                return
+            if not success:
+                logger.warning(
+                    "CONFIG_LOADED meldet Fehlschlag für Slot %s (Config %s): %s",
+                    slot_id, config_id, payload.get("error"),
+                )
+                return
+            updated = ServerSlot.objects.filter(id=slot_id).update(
+                current_config_id=config_id,
+                last_synced_at=datetime.now(timezone.utc),
+            )
+            if updated:
+                logger.info("Config %s auf Slot %s geladen.", config_id, slot_id)
+            else:
+                logger.warning("CONFIG_LOADED für unbekannte slot_id: %s", slot_id)
     finally:
         close_old_connections()
 

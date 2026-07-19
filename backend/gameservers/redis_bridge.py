@@ -79,3 +79,25 @@ def publish_delete_slot(slot) -> bool:
         "slot_id": slot.id,
         "docker_container_name": slot.docker_container_name,
     })
+
+
+def publish_load_config(slot, config) -> bool:
+    """Asks the gameserver-plattform side to download `config.file` (a plain
+    HTTP GET against this backend's own MEDIA_URL - the file isn't secret),
+    push it into the slot's bind-mounted cfg dir via SFTP, then RCON
+    `exec <filename>` on the running container. gameserver-plattform holds no
+    DB of its own, so the RCON connection details (VPS IP, slot's game port
+    doubling as the RCON port, decrypted rcon_password) have to ride along in
+    this command the same way CREATE_SLOT's do - this is the one place this
+    plaintext value crosses over, same as publish_create_slot() above."""
+    return _publish({
+        "type": "LOAD_CONFIG",
+        "slot_id": slot.id,
+        "docker_container_name": slot.docker_container_name,
+        "config_id": config.id,
+        "config_filename": config.file.name.rsplit("/", 1)[-1],
+        "config_url": f"{settings.BACKEND_BASE_URL}{settings.MEDIA_URL}{config.file.name}",
+        "host": slot.vps.ip_address,
+        "port": slot.port,
+        "rcon_password": slot.rcon_password,
+    })

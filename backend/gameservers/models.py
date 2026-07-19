@@ -38,6 +38,36 @@ class HetznerVPS(models.Model):
         return f"{self.name} ({self.last_known_status})"
 
 
+class ServerConfig(models.Model):
+    """A reusable, admin-uploaded CS2 server config file (a pracc config, a
+    util-practice config, or a map-pool/map-cycle file). Loading one onto a
+    ServerSlot just means "push this file into the slot's cfg dir, then RCON
+    `exec <filename>`" - see redis_bridge.py's publish_load_config(). A
+    "map pool" is deliberately just another config file here, not a separate
+    concept - there's no live sync against an external Active-Duty map list,
+    the admin curates the file's contents directly."""
+
+    KIND_CHOICES = [
+        ("pracc", "Pracc"),
+        ("util", "Util"),
+        ("map_pool", "Map-Pool"),
+    ]
+
+    label = models.CharField(max_length=100, help_text='z.B. "Standard Pracc" oder "Active Duty Map-Pool".')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    file = models.FileField(upload_to='gameserver_configs/')
+    description = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Server-Config"
+        verbose_name_plural = "Server-Configs"
+        ordering = ["kind", "label"]
+
+    def __str__(self):
+        return f"{self.label} ({self.get_kind_display()})"
+
+
 class ServerSlot(models.Model):
     """One CS2 dedicated-server Docker container on the VPS (one of "up to
     3" pracc servers, or the util-practice server). PunishersGer only ever
@@ -72,6 +102,9 @@ class ServerSlot(models.Model):
         help_text="UDP-Port für Spielverkehr - RCON läuft über TCP auf demselben Port (Source-Engine-Konvention)."
     )
     rcon_password = EncryptedTextField()
+    current_config = models.ForeignKey(
+        ServerConfig, on_delete=models.SET_NULL, null=True, blank=True, related_name="loaded_on_slots"
+    )
     last_known_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="unknown")
     last_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

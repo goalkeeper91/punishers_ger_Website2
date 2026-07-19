@@ -6,7 +6,7 @@ import re
 import logging
 
 import jwt
-from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -40,7 +40,7 @@ from discord_bot import redis_bridge as discord_redis_bridge
 from discord_bot.listener import start_listener as start_discord_listener, stop_listener as stop_discord_listener
 from discord_bot.scheduler import start_scheduler as start_discord_config_scheduler, stop_scheduler as stop_discord_config_scheduler
 from social_media.models import SocialMediaVaultSettings
-from gameservers.models import HetznerVPS, ServerSlot
+from gameservers.models import HetznerVPS, ServerConfig, ServerSlot
 from gameservers import redis_bridge as gameserver_redis_bridge
 from gameservers.listener import start_listener as start_gameserver_listener, stop_listener as stop_gameserver_listener
 from faceit_integration import sync as faceit_sync
@@ -3205,6 +3205,7 @@ class ServerSlotSchema(BaseModel):
     kind: str
     docker_container_name: str
     port: int
+    current_config_id: Optional[int] = None
     last_known_status: str
     last_synced_at: Optional[str] = None
     # rcon_password deliberately never included here - see
@@ -3229,6 +3230,7 @@ def build_server_slot_schema(slot: ServerSlot) -> ServerSlotSchema:
         kind=slot.kind,
         docker_container_name=slot.docker_container_name,
         port=slot.port,
+        current_config_id=slot.current_config_id,
         last_known_status=slot.last_known_status,
         last_synced_at=slot.last_synced_at.isoformat() if slot.last_synced_at else None,
     )
@@ -3343,6 +3345,137 @@ async def delete_server_slot(
     slot_id_val, slot_label = slot.id, slot.label
     await sync_to_async(slot.delete)()
     await sync_to_async(_log_action)(current_user, "delete", "ServerSlot", slot_id_val, slot_label)
+
+# --- CS2 gameserver dashboard (Phase 3: config library + loading configs) ---
+
+ALLOWED_CONFIG_EXTENSIONS = {".cfg", ".txt"}
+MAX_CONFIG_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB - these are plain-text CS2 configs, not media
+
+async def save_uploaded_config(file: UploadFile, directory: str, filename_base: str) -> str:
+    """Same validate-then-write shape as save_uploaded_image()/save_uploaded_video()
+    above, sized and extension-restricted for plain-text CS2 config/map-pool
+    files instead of media."""
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in ALLOWED_CONFIG_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Nicht unterstütztes Dateiformat. Erlaubt: {', '.join(sorted(ALLOWED_CONFIG_EXTENSIONS))}",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Datei ist leer.")
+    if len(content) > MAX_CONFIG_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Datei zu groß (max. {MAX_CONFIG_SIZE_BYTES // 1024} KB).",
+        )
+
+    await sync_to_async(os.makedirs)(directory, exist_ok=True)
+    file_name = f"{filename_base}{extension}"
+    file_path = os.path.join(directory, file_name)
+
+    def _write():
+        with open(file_path, "wb") as buffer:
+            buffer.write(content)
+
+    try:
+        await sync_to_async(_write)()
+    finally:
+        await file.close()
+
+    return file_name
+
+class ServerConfigSchema(BaseModel):
+    id: int
+    label: str
+    kind: str
+    description: str
+    file_url: Optional[str] = None
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+SERVER_CONFIG_KIND_CHOICES = {choice[0] for choice in ServerConfig.KIND_CHOICES}
+
+def build_server_config_schema(config: ServerConfig) -> ServerConfigSchema:
+    return ServerConfigSchema(
+        id=config.id,
+        label=config.label,
+        kind=config.kind,
+        description=config.description,
+        file_url=build_media_url(config.file),
+        created_at=config.created_at.isoformat(),
+    )
+
+@app.get("/admin/gameservers/configs/", response_model=List[ServerConfigSchema])
+async def get_server_configs(current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers"))):
+    configs = await sync_to_async(list)(ServerConfig.objects.all())
+    return [build_server_config_schema(c) for c in configs]
+
+@app.post("/admin/gameservers/configs/", response_model=ServerConfigSchema, status_code=status.HTTP_201_CREATED)
+async def create_server_config(
+    label: str = Form(...),
+    kind: str = Form(...),
+    description: str = Form(""),
+    file: UploadFile = File(...),
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    if kind not in SERVER_CONFIG_KIND_CHOICES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unbekannte Config-Art: {kind}")
+
+    configs_dir = os.path.join(settings.MEDIA_ROOT, 'gameserver_configs')
+    label_clean = label.strip()
+
+    def _create():
+        config = ServerConfig.objects.create(label=label_clean, kind=kind, description=description.strip())
+        return config
+
+    config = await sync_to_async(_create)()
+    file_name = await save_uploaded_config(file, configs_dir, f"config_{config.id}")
+    config.file = f'gameserver_configs/{file_name}'
+    await sync_to_async(config.save)(update_fields=['file'])
+    await sync_to_async(_log_action)(current_user, "create", "ServerConfig", config.id, config.label)
+    return build_server_config_schema(config)
+
+@app.delete("/admin/gameservers/configs/{config_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_server_config(
+    config_id: int,
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    try:
+        config = await sync_to_async(ServerConfig.objects.get)(id=config_id)
+    except ServerConfig.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config nicht gefunden.")
+    config_id_val, config_label = config.id, config.label
+    await sync_to_async(config.delete)()
+    await sync_to_async(_log_action)(current_user, "delete", "ServerConfig", config_id_val, config_label)
+
+class LoadConfigRequest(BaseModel):
+    config_id: int
+
+@app.put("/admin/gameservers/slots/{slot_id}/load-config/", response_model=ServerSlotSchema)
+async def load_server_slot_config(
+    slot_id: int,
+    payload: LoadConfigRequest,
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    try:
+        slot = await sync_to_async(ServerSlot.objects.get)(id=slot_id)
+    except ServerSlot.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot nicht gefunden.")
+    try:
+        config = await sync_to_async(ServerConfig.objects.get)(id=payload.config_id)
+    except ServerConfig.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config nicht gefunden.")
+
+    published = await sync_to_async(gameserver_redis_bridge.publish_load_config)(slot, config)
+    if not published:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Befehl konnte nicht an den Gameserver-Dienst gesendet werden.")
+
+    await sync_to_async(_log_action)(current_user, "update", "ServerSlot", slot.id, slot.label, {"action": "load_config", "config_id": config.id})
+    return build_server_slot_schema(slot)
 
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every
