@@ -120,7 +120,12 @@ class ReactionRole(models.Model):
     guild = models.ForeignKey(DiscordGuild, on_delete=models.CASCADE, related_name="reaction_roles")
     channel_id = models.CharField(max_length=32)
     message_id = models.CharField(max_length=32)
-    emoji = models.CharField(max_length=16, default="✅")
+    # max_length=32 to match channel_id/message_id/role_id below - a custom
+    # server emoji's numeric ID (accepted as an alternative to the literal
+    # emoji character, see bot-plattform's reaction_role_events.py) is an
+    # 18-19 digit Discord snowflake, which didn't fit the original 16-char
+    # limit this field launched with.
+    emoji = models.CharField(max_length=32, default="✅")
     role_id = models.CharField(max_length=32)
     label = models.CharField(
         max_length=100, blank=True,
