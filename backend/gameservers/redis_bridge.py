@@ -101,3 +101,19 @@ def publish_load_config(slot, config) -> bool:
         "port": slot.port,
         "rcon_password": slot.rcon_password,
     })
+
+
+def publish_start_pracc(pracc) -> bool:
+    """Asks the gameserver-plattform side to make sure the Pracc's assigned
+    slot is actually running before the scheduled match starts - see
+    Pracc's own docstring for why this deliberately stops there instead of
+    auto-generating a full MatchZy match config. Reported back distinctly
+    from a plain START_SLOT via PRACC_STATUS_CHANGED (see listener.py) so
+    the Pracc's own status can react (revert to "scheduled" on failure)
+    without conflating it with the slot's own status tracking."""
+    return _publish({
+        "type": "START_PRACC",
+        "pracc_id": pracc.id,
+        "slot_id": pracc.slot_id,
+        "docker_container_name": pracc.slot.docker_container_name,
+    })

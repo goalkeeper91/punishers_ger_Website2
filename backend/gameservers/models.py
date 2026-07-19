@@ -116,3 +116,48 @@ class ServerSlot(models.Model):
 
     def __str__(self):
         return f"{self.label} ({self.get_kind_display()})"
+
+
+class Pracc(models.Model):
+    """A scheduled scrim ("Pracc") between one of our own teams and an
+    opponent, assigned to one of the CS2 slots on the rented VPS. Starting
+    one (see redis_bridge.py's publish_start_pracc()) only makes sure the
+    assigned slot's container is actually running - deliberately NOT the
+    full MatchZy match-config automation (team rosters, map veto) the
+    original plan sketched. Building even a one-sided roster from
+    CustomUser.steam_id would be possible for own_team, but opponent_team_name
+    is deliberately free text, not a linked Team - the opponent has no
+    modeled roster in this system at all, so a real two-sided MatchZy config
+    isn't buildable regardless. That (and the plan's own note that MatchZy's
+    exact convars are unverified pending a real deploy) is why this stays at
+    scheduling + Teammanager-scoped visibility + making sure the server is
+    up, same guarantee START_SLOT already gives."""
+
+    STATUS_CHOICES = [
+        ("scheduled", "Geplant"),
+        ("live", "Live"),
+        ("finished", "Beendet"),
+        ("cancelled", "Abgesagt"),
+    ]
+
+    slot = models.ForeignKey(ServerSlot, on_delete=models.CASCADE, related_name="praccs")
+    own_team = models.ForeignKey('teams.Team', on_delete=models.CASCADE, related_name="praccs")
+    opponent_team_name = models.CharField(max_length=100)
+    scheduled_at = models.DateTimeField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="scheduled")
+    created_by = models.ForeignKey(
+        'users.CustomUser', on_delete=models.SET_NULL, null=True, blank=True, related_name="created_praccs"
+    )
+    # Populated once gameserver-plattform retrieves it post-match (Phase 5) -
+    # empty until then.
+    demo_file = models.FileField(upload_to='gameserver_demos/', null=True, blank=True)
+    match_ended_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Pracc"
+        verbose_name_plural = "Praccs"
+        ordering = ["-scheduled_at"]
+
+    def __str__(self):
+        return f"{self.own_team.name} vs. {self.opponent_team_name} ({self.scheduled_at:%Y-%m-%d %H:%M})"

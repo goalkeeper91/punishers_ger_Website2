@@ -40,7 +40,7 @@ from discord_bot import redis_bridge as discord_redis_bridge
 from discord_bot.listener import start_listener as start_discord_listener, stop_listener as stop_discord_listener
 from discord_bot.scheduler import start_scheduler as start_discord_config_scheduler, stop_scheduler as stop_discord_config_scheduler
 from social_media.models import SocialMediaVaultSettings
-from gameservers.models import HetznerVPS, ServerConfig, ServerSlot
+from gameservers.models import HetznerVPS, Pracc, ServerConfig, ServerSlot
 from gameservers import redis_bridge as gameserver_redis_bridge
 from gameservers.listener import start_listener as start_gameserver_listener, stop_listener as stop_gameserver_listener
 from faceit_integration import sync as faceit_sync
@@ -3122,6 +3122,21 @@ async def update_social_media_vault_url(
 # validate, cache to the DB, and publish a command for the separate
 # gameserver-plattform repo to actually carry out.
 
+async def require_gameservers_read(current_user: CustomUser = Depends(get_current_user)) -> CustomUser:
+    """Read-only gate for infra info a Teammanager needs to see just to
+    schedule a Pracc (which slot to pick) - e.g. GET .../slots/. Every
+    mutating gameserver endpoint (power, create/start/stop/delete, configs)
+    stays strictly admin-only via require_permission("gameservers.manage_gameservers")."""
+    if current_user.is_superuser:
+        return current_user
+    has_blanket = await sync_to_async(current_user.has_perm)("gameservers.manage_gameservers")
+    if has_blanket:
+        return current_user
+    user_roles = await sync_to_async(lambda: set(current_user.roles))()
+    if ROLE_TEAM_MANAGER in user_roles:
+        return current_user
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform this action")
+
 class HetznerVPSSchema(BaseModel):
     id: int
     hetzner_server_id: str
@@ -3236,7 +3251,7 @@ def build_server_slot_schema(slot: ServerSlot) -> ServerSlotSchema:
     )
 
 @app.get("/admin/gameservers/slots/", response_model=List[ServerSlotSchema])
-async def get_server_slots(current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers"))):
+async def get_server_slots(current_user: CustomUser = Depends(require_gameservers_read)):
     slots = await sync_to_async(list)(ServerSlot.objects.select_related('vps').all())
     return [build_server_slot_schema(s) for s in slots]
 
@@ -3476,6 +3491,196 @@ async def load_server_slot_config(
 
     await sync_to_async(_log_action)(current_user, "update", "ServerSlot", slot.id, slot.label, {"action": "load_config", "config_id": config.id})
     return build_server_slot_schema(slot)
+
+# --- CS2 gameserver dashboard (Phase 4: Pracc scheduling, Teammanager-scoped) ---
+
+def _announce_pracc_created(pracc: Pracc) -> None:
+    """Fires a Discord "pracc_created" announcement - mirrors
+    _announce_news_published() above exactly. Called from create_pracc()
+    below, inside the same sync context that already saved the row."""
+    from discord_bot.models import AnnouncementChannelMapping
+    from discord_bot.redis_bridge import publish_notification
+
+    mappings = AnnouncementChannelMapping.objects.filter(
+        event_type="pracc_created", guild__is_active=True
+    ).select_related("guild")
+    for mapping in mappings:
+        publish_notification(
+            event_type="pracc_created",
+            guild=mapping.guild,
+            channel_id=mapping.channel_id,
+            title=f"Neuer Pracc: {pracc.own_team.name} vs. {pracc.opponent_team_name}",
+            description=f"Geplant für {pracc.scheduled_at.strftime('%d.%m.%Y %H:%M')} UTC auf {pracc.slot.label}.",
+        )
+
+class PraccSchema(BaseModel):
+    id: int
+    slot_id: int
+    slot_label: str
+    own_team_id: int
+    own_team_name: str
+    opponent_team_name: str
+    scheduled_at: str
+    status: str
+    created_by_username: Optional[str] = None
+    demo_url: Optional[str] = None
+    match_ended_at: Optional[str] = None
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+class PraccCreate(BaseModel):
+    slot_id: int
+    own_team_id: int
+    opponent_team_name: str
+    scheduled_at: str
+
+class PraccStatusUpdate(BaseModel):
+    status: str
+
+PRACC_STATUS_CHOICES = {choice[0] for choice in Pracc.STATUS_CHOICES}
+
+def build_pracc_schema(pracc: Pracc) -> PraccSchema:
+    return PraccSchema(
+        id=pracc.id,
+        slot_id=pracc.slot_id,
+        slot_label=pracc.slot.label,
+        own_team_id=pracc.own_team_id,
+        own_team_name=pracc.own_team.name,
+        opponent_team_name=pracc.opponent_team_name,
+        scheduled_at=pracc.scheduled_at.isoformat(),
+        status=pracc.status,
+        created_by_username=pracc.created_by.username if pracc.created_by else None,
+        demo_url=build_media_url(pracc.demo_file),
+        match_ended_at=pracc.match_ended_at.isoformat() if pracc.match_ended_at else None,
+        created_at=pracc.created_at.isoformat(),
+    )
+
+async def _resolve_pracc_team_scope(current_user: CustomUser) -> Optional[int]:
+    """None = full access (superuser or gameservers.manage_gameservers
+    holder). Otherwise the single team_id a Teammanager's Pracc access is
+    scoped to. Raises 403 for anyone else - mirrors
+    _resolve_application_game_scope() above exactly."""
+    if current_user.is_superuser:
+        return None
+    has_blanket = await sync_to_async(current_user.has_perm)("gameservers.manage_gameservers")
+    if has_blanket:
+        return None
+    user_roles = await sync_to_async(lambda: set(current_user.roles))()
+    if ROLE_TEAM_MANAGER in user_roles and current_user.team_id:
+        return current_user.team_id
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Keine Berechtigung für Praccs.")
+
+@app.get("/admin/gameservers/praccs/", response_model=List[PraccSchema])
+async def get_praccs(current_user: CustomUser = Depends(get_current_user)):
+    scope = await _resolve_pracc_team_scope(current_user)
+
+    def _list():
+        qs = Pracc.objects.select_related('slot', 'own_team', 'created_by').all()
+        if scope is not None:
+            qs = qs.filter(own_team_id=scope)
+        return list(qs)
+
+    praccs = await sync_to_async(_list)()
+    return [build_pracc_schema(p) for p in praccs]
+
+@app.post("/admin/gameservers/praccs/", response_model=PraccSchema, status_code=status.HTTP_201_CREATED)
+async def create_pracc(
+    payload: PraccCreate,
+    current_user: CustomUser = Depends(get_current_user),
+):
+    scope = await _resolve_pracc_team_scope(current_user)
+    if scope is not None and payload.own_team_id != scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Du kannst nur für dein eigenes Team einen Pracc anlegen.")
+    if not payload.opponent_team_name.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Gegner-Teamname erforderlich.")
+
+    try:
+        slot = await sync_to_async(ServerSlot.objects.get)(id=payload.slot_id)
+    except ServerSlot.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot nicht gefunden.")
+    try:
+        team = await sync_to_async(Team.objects.get)(id=payload.own_team_id)
+    except Team.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team nicht gefunden.")
+    try:
+        scheduled_at = datetime.fromisoformat(payload.scheduled_at)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiges Datum.")
+    if scheduled_at.tzinfo is None:
+        # A plain <input type="datetime-local"> value carries no timezone -
+        # treated as a raw wall-clock value in the server's own UTC (see
+        # settings.TIME_ZONE), not converted from the browser's local zone.
+        # The frontend renders it back the same way, without going through
+        # a Date object that would otherwise silently shift it again.
+        scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+
+    def _create():
+        pracc = Pracc.objects.create(
+            slot=slot,
+            own_team=team,
+            opponent_team_name=payload.opponent_team_name.strip(),
+            scheduled_at=scheduled_at,
+            created_by=current_user,
+        )
+        _announce_pracc_created(pracc)
+        return pracc
+
+    pracc = await sync_to_async(_create)()
+    await sync_to_async(_log_action)(current_user, "create", "Pracc", pracc.id, str(pracc))
+    return build_pracc_schema(pracc)
+
+@app.put("/admin/gameservers/praccs/{pracc_id}/status/", response_model=PraccSchema)
+async def update_pracc_status(
+    pracc_id: int,
+    payload: PraccStatusUpdate,
+    current_user: CustomUser = Depends(get_current_user),
+):
+    if payload.status not in PRACC_STATUS_CHOICES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unbekannter Status: {payload.status}")
+    try:
+        pracc = await sync_to_async(Pracc.objects.select_related('slot', 'own_team', 'created_by').get)(id=pracc_id)
+    except Pracc.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pracc nicht gefunden.")
+
+    scope = await _resolve_pracc_team_scope(current_user)
+    if scope is not None and pracc.own_team_id != scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Du kannst nur Praccs deines eigenen Teams verwalten.")
+
+    if payload.status == "live":
+        if pracc.status != "scheduled":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nur ein geplanter Pracc kann gestartet werden.")
+        published = await sync_to_async(gameserver_redis_bridge.publish_start_pracc)(pracc)
+        if not published:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Befehl konnte nicht an den Gameserver-Dienst gesendet werden.")
+
+        def _mark_live():
+            pracc.status = "live"
+            pracc.save(update_fields=['status'])
+            return pracc
+
+        pracc = await sync_to_async(_mark_live)()
+    elif payload.status == "finished":
+        def _mark_finished():
+            pracc.status = "finished"
+            pracc.match_ended_at = datetime.now(timezone.utc)
+            pracc.save(update_fields=['status', 'match_ended_at'])
+            return pracc
+
+        pracc = await sync_to_async(_mark_finished)()
+    elif payload.status == "cancelled":
+        def _mark_cancelled():
+            pracc.status = "cancelled"
+            pracc.save(update_fields=['status'])
+            return pracc
+
+        pracc = await sync_to_async(_mark_cancelled)()
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Dieser Statusübergang wird nicht unterstützt.")
+
+    await sync_to_async(_log_action)(current_user, "update", "Pracc", pracc.id, str(pracc), {"status": payload.status})
+    return build_pracc_schema(pracc)
 
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every

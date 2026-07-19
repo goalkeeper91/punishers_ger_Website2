@@ -38,6 +38,7 @@ class AnnouncementChannelMapping(models.Model):
         ("match_result", "Match-Ergebnisse"),
         ("news_published", "Neue News-Artikel"),
         ("stream_live", "Stream-Start"),
+        ("pracc_created", "Neuer Pracc geplant"),
     ]
 
     guild = models.ForeignKey(DiscordGuild, on_delete=models.CASCADE, related_name="channel_mappings")

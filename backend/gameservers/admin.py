@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import HetznerVPS, ServerConfig, ServerSlot
+from .models import HetznerVPS, Pracc, ServerConfig, ServerSlot
 
 
 @admin.register(HetznerVPS)
@@ -19,3 +19,10 @@ class ServerSlotAdmin(admin.ModelAdmin):
     list_display = ('label', 'kind', 'vps', 'port', 'current_config', 'last_known_status', 'last_synced_at')
     list_filter = ('kind', 'vps')
     readonly_fields = ('docker_container_name', 'last_known_status', 'last_synced_at')
+
+
+@admin.register(Pracc)
+class PraccAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'own_team', 'slot', 'status', 'scheduled_at', 'created_by')
+    list_filter = ('status', 'own_team', 'slot')
+    readonly_fields = ('match_ended_at',)

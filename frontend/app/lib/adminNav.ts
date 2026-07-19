@@ -6,7 +6,7 @@
 
 import { hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "./auth";
 
-export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers";
+export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers" | "praccs";
 
 export interface AdminNavItem {
   key: AdminNavKey;
@@ -78,12 +78,15 @@ export function getAdminNavItems(
     items.push({ key: "social-media", href: "/admin/social-media", label: "Social Media" });
   }
   if (isAdmin || canGameservers) {
-    // Teammanagers don't get this automatically yet - the shared VPS power
-    // switch affects every team at once, unlike Praccs (a later phase,
-    // scoped per-team like Applications/Teams). An admin can still grant
+    // Teammanagers don't get this automatically - the shared VPS power
+    // switch affects every team at once, unlike Praccs below (scoped
+    // per-team like Applications/Teams). An admin can still grant
     // gameservers.manage_gameservers to a specific Teammanager via the
     // existing roles UI if desired.
     items.push({ key: "gameservers", href: "/admin/gameservers", label: "Gameserver" });
+  }
+  if (isAdmin || canGameservers || isTeamManager) {
+    items.push({ key: "praccs", href: "/admin/praccs", label: "Praccs" });
   }
   if (isAdmin) {
     items.push({ key: "audit-log", href: "/admin/audit-log", label: "Audit-Log" });

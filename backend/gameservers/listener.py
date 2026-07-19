@@ -18,7 +18,7 @@ from typing import Optional
 import redis
 from django.db import close_old_connections
 
-from .models import HetznerVPS, ServerSlot
+from .models import HetznerVPS, Pracc, ServerSlot
 from .redis_bridge import get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,22 @@ def _handle_message(payload: dict) -> None:
                 logger.info("Config %s auf Slot %s geladen.", config_id, slot_id)
             else:
                 logger.warning("CONFIG_LOADED für unbekannte slot_id: %s", slot_id)
+
+        elif event == "PRACC_STATUS_CHANGED":
+            # Reports back whether the assigned slot actually came up for a
+            # Pracc that fastapi_app/main.py already optimistically marked
+            # "live" - reverts to "scheduled" on failure (see
+            # redis_bridge.py's publish_start_pracc() docstring), or just
+            # confirms "live" on success.
+            pracc_id = payload.get("pracc_id")
+            new_status = payload.get("status")
+            if not pracc_id or not new_status:
+                return
+            updated = Pracc.objects.filter(id=pracc_id).update(status=new_status)
+            if updated:
+                logger.info("Pracc-Status aktualisiert: %s -> %s", pracc_id, new_status)
+            else:
+                logger.warning("PRACC_STATUS_CHANGED für unbekannte pracc_id: %s", pracc_id)
     finally:
         close_old_connections()
 
