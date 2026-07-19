@@ -14,6 +14,7 @@ interface AdminNavProps {
 export default function AdminNav({ active }: AdminNavProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [pendingUsersCount, setPendingUsersCount] = useState<number | undefined>(undefined);
+  const [pendingApplicationsCount, setPendingApplicationsCount] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     authFetch("/users/me/")
@@ -28,9 +29,18 @@ export default function AdminNav({ active }: AdminNavProps) {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setPendingUsersCount(data?.count))
       .catch(() => setPendingUsersCount(undefined));
+
+    // Open ("pending") application count for the "Bewerbungen" badge -
+    // scoped server-side to the caller's own game for a Teammanager, same
+    // as the applications list itself; 403s silently for anyone without
+    // any application access at all.
+    authFetch("/admin/applications/pending-count/")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setPendingApplicationsCount(data?.count))
+      .catch(() => setPendingApplicationsCount(undefined));
   }, []);
 
-  const items = getAdminNavItems(user, { pendingUsersCount });
+  const items = getAdminNavItems(user, { pendingUsersCount, pendingApplicationsCount });
 
   return (
     <nav className="flex flex-wrap gap-3 justify-center mb-10">

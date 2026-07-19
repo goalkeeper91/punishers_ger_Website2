@@ -15,7 +15,10 @@ export interface AdminNavItem {
   badgeCount?: number;
 }
 
-export function getAdminNavItems(user: AuthUser | null, opts?: { pendingUsersCount?: number }): AdminNavItem[] {
+export function getAdminNavItems(
+  user: AuthUser | null,
+  opts?: { pendingUsersCount?: number; pendingApplicationsCount?: number },
+): AdminNavItem[] {
   if (!user) return [];
 
   const isAdmin = user.is_superuser;
@@ -65,7 +68,7 @@ export function getAdminNavItems(user: AuthUser | null, opts?: { pendingUsersCou
     items.push({ key: "site-settings", href: "/admin/site-settings", label: "Seiteneinstellungen" });
   }
   if (isAdmin || canApplications || isTeamManager) {
-    items.push({ key: "applications", href: "/admin/applications", label: "Bewerbungen" });
+    items.push({ key: "applications", href: "/admin/applications", label: "Bewerbungen", badgeCount: opts?.pendingApplicationsCount });
   }
   if (isAdmin || canDiscordBot) {
     items.push({ key: "discord", href: "/admin/discord", label: "Discord-Bot" });

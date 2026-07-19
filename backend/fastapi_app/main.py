@@ -1263,13 +1263,13 @@ async def get_all_users_for_admin(
     users = await sync_to_async(list)(CustomUser.objects.filter(is_deleted=False).order_by('username'))
     return [await build_user_schema(user) for user in users]
 
-class PendingUsersCountSchema(BaseModel):
+class PendingCountSchema(BaseModel):
     count: int
 
-@app.get("/admin/users/pending-count/", response_model=PendingUsersCountSchema)
+@app.get("/admin/users/pending-count/", response_model=PendingCountSchema)
 async def get_pending_users_count(current_user: CustomUser = Depends(require_permission("users.manage_users"))):
     count = await sync_to_async(CustomUser.objects.filter(is_active=False, is_deleted=False).count)()
-    return PendingUsersCountSchema(count=count)
+    return PendingCountSchema(count=count)
 
 @app.delete("/admin/users/{user_id}/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user_account(
@@ -2687,6 +2687,21 @@ async def get_player_applications(current_user: CustomUser = Depends(get_current
 
     applications = await sync_to_async(_collect)()
     return [build_application_schema(a) for a in applications]
+
+@app.get("/admin/applications/pending-count/", response_model=PendingCountSchema)
+async def get_pending_applications_count(current_user: CustomUser = Depends(get_current_user)):
+    """Same visibility scoping as get_player_applications - a Teammanager's
+    badge only counts their own game's open applications, not every game's."""
+    game_scope = await _resolve_application_game_scope(current_user)
+
+    def _count():
+        qs = PlayerApplication.objects.filter(status="pending")
+        if game_scope:
+            qs = qs.filter(game=game_scope)
+        return qs.count()
+
+    count = await sync_to_async(_count)()
+    return PendingCountSchema(count=count)
 
 @app.put("/admin/applications/players/{application_id}/status/", response_model=PlayerApplicationSchema)
 async def update_player_application_status(
