@@ -21,12 +21,22 @@ interface Pracc {
   demo_expires_at: string | null;
   match_ended_at: string | null;
   created_at: string;
+  slot_ip: string | null;
+  slot_port: number | null;
+  map_pool_config_id: number | null;
+  map_pool_config_label: string | null;
 }
 
 interface ServerSlot {
   id: number;
   label: string;
   kind: "pracc" | "util";
+}
+
+interface ServerConfigOption {
+  id: number;
+  label: string;
+  kind: "pracc" | "util" | "map_pool";
 }
 
 interface TeamOption {
@@ -62,12 +72,13 @@ export const clientLoader: ClientLoaderFunction = async () => {
     throw redirect("/login");
   }
 
-  const [meResponse, praccsResponse, slotsResponse] = await Promise.all([
+  const [meResponse, praccsResponse, slotsResponse, configsResponse] = await Promise.all([
     authFetch("/users/me/"),
     authFetch("/admin/gameservers/praccs/"),
     authFetch("/admin/gameservers/slots/"),
+    authFetch("/admin/gameservers/configs/"),
   ]);
-  for (const response of [meResponse, praccsResponse, slotsResponse]) {
+  for (const response of [meResponse, praccsResponse, slotsResponse, configsResponse]) {
     if (!response.ok) {
       if (response.status === 401) throw redirect("/login");
       if (response.status === 403) throw redirect("/admin"); // logged in, just lacks Pracc access
@@ -77,6 +88,7 @@ export const clientLoader: ClientLoaderFunction = async () => {
   const me: AuthUser = await meResponse.json();
   const praccs: Pracc[] = await praccsResponse.json();
   const slots: ServerSlot[] = await slotsResponse.json();
+  const configs: ServerConfigOption[] = await configsResponse.json();
 
   let teams: TeamOption[] = [];
   if (me.is_superuser || me.permissions.includes("gameservers.manage_gameservers")) {
@@ -86,7 +98,7 @@ export const clientLoader: ClientLoaderFunction = async () => {
     }
   }
 
-  return { me, praccs, slots, teams };
+  return { me, praccs, slots, configs, teams };
 };
 
 export function HydrateFallback() {
@@ -111,6 +123,7 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       const ownTeamId = formData.get("own_team_id");
       const opponentTeamName = formData.get("opponent_team_name");
       const scheduledAt = formData.get("scheduled_at");
+      const mapPoolConfigId = formData.get("map_pool_config_id");
       if (typeof slotId !== "string" || !slotId) {
         return { errors: { slot_id: "Slot erforderlich." } };
       }
@@ -128,6 +141,7 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
           own_team_id: Number(ownTeamId),
           opponent_team_name: opponentTeamName.trim(),
           scheduled_at: scheduledAt,
+          map_pool_config_id: typeof mapPoolConfigId === "string" && mapPoolConfigId ? Number(mapPoolConfigId) : null,
         }),
       });
       const data = await response.json();
@@ -160,10 +174,11 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
 };
 
 export default function AdminPraccsPage() {
-  const { me, praccs, slots, teams } = useLoaderData() as {
+  const { me, praccs, slots, configs, teams } = useLoaderData() as {
     me: AuthUser;
     praccs: Pracc[];
     slots: ServerSlot[];
+    configs: ServerConfigOption[];
     teams: TeamOption[];
   };
   const actionData = useActionData() as
@@ -173,6 +188,7 @@ export default function AdminPraccsPage() {
 
   const isFullAccess = me.is_superuser || me.permissions.includes("gameservers.manage_gameservers");
   const praccSlots = slots.filter((slot) => slot.kind === "pracc");
+  const mapPoolConfigs = configs.filter((config) => config.kind === "map_pool");
 
   const handleDownloadDemo = async (pracc: Pracc) => {
     setDownloadError(null);
@@ -208,6 +224,14 @@ export default function AdminPraccsPage() {
                     {formatWallClock(pracc.scheduled_at)} UTC · {pracc.slot_label}
                     {pracc.created_by_username && ` · von ${pracc.created_by_username}`}
                   </p>
+                  {pracc.map_pool_config_label && (
+                    <p className="text-gray-500 text-xs">Map-Pool: {pracc.map_pool_config_label}</p>
+                  )}
+                  {(pracc.status === "scheduled" || pracc.status === "live") && pracc.slot_ip && (
+                    <p className="text-gray-500 text-xs">
+                      Connect: <span className="font-mono">{pracc.slot_ip}:{pracc.slot_port}</span>
+                    </p>
+                  )}
                   {pracc.demo_available && (
                     <div className="flex items-center gap-2">
                       <button
@@ -335,6 +359,26 @@ export default function AdminPraccsPage() {
                   className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
                 />
                 {actionData?.errors?.scheduled_at && <p className="mt-1 text-sm text-red-500">{actionData.errors.scheduled_at}</p>}
+              </div>
+              <div>
+                <label htmlFor="map_pool_config_id" className="block text-sm font-medium text-gray-300 mb-1">Map-Pool</label>
+                <select
+                  id="map_pool_config_id"
+                  name="map_pool_config_id"
+                  defaultValue=""
+                  className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                >
+                  <option value="">Kein Match-Auto-Setup (nur Server starten)</option>
+                  {mapPoolConfigs.map((config) => (
+                    <option key={config.id} value={config.id}>
+                      {config.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Mit Map-Pool lädt "Starten" automatisch ein MatchZy-Match (Teamnamen + Map-Pool) - beide Teams
+                  verbinden sich selbst und readyen per Ingame-Befehl, kein weiterer Dashboard-Schritt nötig.
+                </p>
               </div>
               <div className="sm:col-span-2">
                 <button type="submit" className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700">

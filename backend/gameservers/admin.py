@@ -23,6 +23,6 @@ class ServerSlotAdmin(admin.ModelAdmin):
 
 @admin.register(Pracc)
 class PraccAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'own_team', 'slot', 'status', 'scheduled_at', 'created_by', 'demo_filename')
+    list_display = ('__str__', 'own_team', 'slot', 'status', 'scheduled_at', 'created_by', 'map_pool_config', 'demo_filename')
     list_filter = ('status', 'own_team', 'slot')
     readonly_fields = ('match_ended_at', 'demo_filename', 'demo_uploaded_at')

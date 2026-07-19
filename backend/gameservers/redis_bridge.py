@@ -105,18 +105,34 @@ def publish_load_config(slot, config) -> bool:
 
 def publish_start_pracc(pracc) -> bool:
     """Asks the gameserver-plattform side to make sure the Pracc's assigned
-    slot is actually running before the scheduled match starts - see
-    Pracc's own docstring for why this deliberately stops there instead of
-    auto-generating a full MatchZy match config. Reported back distinctly
-    from a plain START_SLOT via PRACC_STATUS_CHANGED (see listener.py) so
-    the Pracc's own status can react (revert to "scheduled" on failure)
-    without conflating it with the slot's own status tracking."""
-    return _publish({
+    slot is actually running before the scheduled match starts. Reported
+    back distinctly from a plain START_SLOT via PRACC_STATUS_CHANGED (see
+    listener.py) so the Pracc's own status can react (revert to
+    "scheduled" on failure) without conflating it with the slot's own
+    status tracking.
+
+    If a map_pool_config is assigned (see Pracc's own docstring), also
+    includes `match_config_url` plus the RCON connection details
+    (host/port/rcon_password, same as publish_load_config() above) so
+    gameserver-plattform can RCON `matchzy_loadmatch_url` once the
+    container's confirmed running - from there MatchZy runs its own veto/
+    ready flow, no further dashboard involvement needed. Without a
+    map_pool_config, this stays the original, more conservative behavior:
+    just guarantee the server is up."""
+    payload = {
         "type": "START_PRACC",
         "pracc_id": pracc.id,
         "slot_id": pracc.slot_id,
         "docker_container_name": pracc.slot.docker_container_name,
-    })
+    }
+    if pracc.map_pool_config_id:
+        payload.update({
+            "match_config_url": f"{settings.BACKEND_BASE_URL}/internal/gameservers/praccs/{pracc.id}/matchzy-config/",
+            "host": pracc.slot.vps.ip_address,
+            "port": pracc.slot.port,
+            "rcon_password": pracc.slot.rcon_password,
+        })
+    return _publish(payload)
 
 
 def publish_retrieve_demo(pracc) -> bool:

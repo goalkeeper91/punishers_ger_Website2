@@ -199,6 +199,50 @@ Für Sponsoren-Reportings: aggregierte Reichweite (Follower/Abos) der Org-eigene
 - `sponsors.SocialLink` (Org-Kanäle) und `social_stats.PlayerSocialStats` (pro Spieler + Plattform) tragen dieselben Reichweiten-Felder (`follower_count`, `view_count`, `data_source`, `stats_updated_at`, `trend`, `viewer_stats`).
 - Zugriffskontrolle: Org-Kanäle und Fremdzugriff auf andere Spieler über dieselbe `sponsors.manage_sponsors`-Permission wie die Sponsoren/Socials-Verwaltung; die neuen `/social-stats/me/...`-Endpunkte brauchen nur ein gültiges Login, da sie strukturell nie eine andere Zeile als die eigene berühren können (kein `user_id`-Parameter).
 
+### CS2-Gameserver-Integration (Hetzner VPS)
+
+Steuert bis zu 3 CS2-Pracc-Server plus einen Util-Practice-Server auf einem gemieteten Hetzner-Cloud-VPS – Admin-Dashboard unter `/admin/gameservers` (VPS-Power, Server-Slots, Config-Bibliothek) und `/admin/praccs` (Pracc-Planung mit Demo-Download), dazu zwei Self-Service-Seiten für Spieler (`/praccs` – eigenes Team, `/util-training` – Util-Server selbst starten/stoppen).
+
+**Architektur – zwei getrennte Repos, exakt wie beim Discord-Bot:** PunishersGer hält **niemals** den Hetzner-API-Token, den SSH-Schlüssel des VPS oder RCON-Zugangsdaten – bewusst identisch zum bestehenden Muster mit dem separaten Discord-Bot-Repo. Die komplette Hetzner-/SSH-/RCON-Logik liegt in einem eigenen Repo, [**`gameserver-plattform`**](https://github.com/goalkeeper91/gameserver_CS2). Beide Seiten kommunizieren ausschließlich über den bereits vorhandenen, gemeinsam genutzten Redis-Server (`goalkeeper_prod_network`) – ein eigenes Kanal-Paar `gameserver:commands` (PunishersGer → gameserver-plattform) / `gameserver:status` (zurück):
+
+```
+PunishersGer                          gameserver-plattform (eigenes Repo)
+──────────────                        ────────────────────────────────────
+Admin-Dashboard                       Hetzner Cloud API (Power An/Aus)
+  │ speichert Konfiguration             │ SSH + Docker (Server-Slots erstellen/starten/stoppen)
+  ▼                                     │ RCON (Configs laden, Match-Start, Demo-Abruf)
+Redis  ──gameserver:commands──────────►│
+Redis  ◄──gameserver:status───────────◄│
+```
+
+**Schritt-für-Schritt-Integration:**
+
+1. **Hetzner-VPS mieten** – Cloud Console → Server erstellen. Numerische **Server-ID** (aus der Console-URL bzw. `hcloud server list`) und öffentliche **IP-Adresse** notieren.
+2. **Hetzner-API-Token erzeugen** – Cloud Console → *Security → API Tokens* → neuen Token mit **Lese- und Schreibrechten** anlegen (nur "read" reicht nicht, sonst funktioniert die Power-An/Aus-Funktion nicht).
+3. **SSH-Zugang einrichten** – dedizierten Schlüssel **ohne Passphrase** erzeugen (z. B. `ssh-keygen -t ed25519 -f gameserver_deploy_key -N ""`) und den öffentlichen Teil (`.pub`) auf dem VPS als authorized key hinterlegen (z. B. schon beim Erstellen des Servers in der Hetzner-Console, oder nachträglich per `ssh-copy-id`).
+4. **Docker auf dem VPS sicherstellen** – `gameserver-plattform` legt beim Anlegen eines Slots automatisch die Bind-Mount-Verzeichnisse `/opt/cs2-servers/<container-name>/{cfg,demos}` an; das eigentliche CS2-Image (`joedwards32/cs2`) wird beim ersten Slot automatisch gezogen.
+5. **`gameserver-plattform`-Repo aufsetzen** (dort, wo der VPS per SSH erreichbar ist – z. B. derselbe Server wie der bestehende Docker-Stack):
+   ```bash
+   git clone https://github.com/goalkeeper91/gameserver_CS2.git
+   cd gameserver_CS2
+   cp .env.example .env
+   ```
+   In der `.env` ausfüllen: `HETZNER_API_TOKEN`, `HETZNER_SERVER_ID`, `SSH_HOST` (VPS-IP), `SSH_PORT` (Standard `22`), `SSH_USERNAME`, `SSH_PRIVATE_KEY` (kompletter Inhalt der privaten Schlüsseldatei aus Schritt 3), `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD` (dieselbe Redis-Instanz wie PunishersGer/der Discord-Bot), sowie `GAMESERVER_SERVICE_TOKEN` (selbst generierter, langer Zufallswert – siehe Schritt 6). Danach:
+   ```bash
+   docker compose up -d --build
+   ```
+6. **`GAMESERVER_SERVICE_TOKEN` auch in PunishersGer eintragen** – **denselben** Wert wie in Schritt 5 in `backend/.env` (bzw. der Produktions-`.env`) setzen. Der Token sichert den einzigen eingehenden Aufruf von `gameserver-plattform` an PunishersGer ab (Demo-Datei-Upload nach einem beendeten Match) – service-to-service, kein Nutzer-Login.
+7. **VPS in PunishersGer hinterlegen** – als Admin einloggen, `/admin/gameservers` öffnen, VPS-Formular mit Hetzner-Server-ID + Name + IP (aus Schritt 1) ausfüllen. PunishersGer ruft Hetzner **nie selbst** auf, das ist nur der lokale Status-Cache.
+8. **Server-Slots anlegen** – auf derselben Seite bis zu 3 Pracc-Server-Slots plus einen Util-Slot anlegen (Bezeichnung, Art, Port, RCON-Passwort). Beim Anlegen wird automatisch ein Docker-Container-Name vergeben und ein `CREATE_SLOT`-Befehl an `gameserver-plattform` geschickt, die den `joedwards32/cs2`-Container über SSH tatsächlich erstellt.
+9. **Configs hochladen** (optional) – Pracc-/Util-/Map-Pool-`.cfg`-Dateien über die Config-Bibliothek auf derselben Seite hochladen, dann einem Slot zuweisen ("Config laden") – wird per SFTP in den Container-Cfg-Ordner kopiert und per RCON `exec` aktiviert.
+
+**Wichtige Hinweise:**
+- Source-Engine-Server haben **keinen separaten RCON-Port** – RCON läuft über TCP auf demselben Port, den das Spiel per UDP nutzt (ein Port pro Slot genügt).
+- Hetzner berechnet den VPS unabhängig vom Ein-/Aus-Zustand – die Power-Funktion dient der Kontrolle/Sicherheit, nicht der Kostenersparnis (dafür müsste der VPS gelöscht statt nur ausgeschaltet werden, was bewusst nicht automatisiert ist).
+- `backend` darf, wie oben beschrieben, nur mit einer Replica laufen – das gilt jetzt auch für den neuen Gameserver-Status-Listener (`gameservers/listener.py`), aus demselben Grund wie bei den FACEIT-/Social-Stats-Schedulern.
+- Demo-Downloads (`/praccs`, `/admin/praccs`) sind 7 Tage nach Hochladen gültig (`GAMESERVER_DEMO_DOWNLOAD_DAYS`) und werden nach 14 Tagen automatisch von der Platte gelöscht (`GAMESERVER_DEMO_RETENTION_DAYS`) – dafür `python manage.py cleanup_expired_demos` per Cron/Task-Scheduler einplanen (läuft nicht automatisch im Hintergrund).
+- **Pracc-Match-Setup (MatchZy):** Beim Anlegen eines Praccs (`/admin/praccs`) kann optional ein Map-Pool (eine hochgeladene Config vom Typ "Map-Pool" – einfache Textdatei, eine Map pro Zeile) zugewiesen werden. Ist einer gesetzt, lädt "Pracc starten" automatisch ein generiertes MatchZy-Match (Teamnamen + der Map-Pool, `num_maps=1`) per RCON `matchzy_loadmatch_url` – beide Teams verbinden sich danach selbst zum Server und readyen per Ingame-Befehl (`.ready`); hat der Pool mehr als eine Map, übernimmt MatchZy auch die Veto-Phase automatisch. **Bewusst kein Steam-ID-gebundenes Roster:** `opponent_team_name` ist Freitext, kein verknüpftes Team – für einen Pracc braucht es dafür auch keins, Teamnamen + Map-Pool reichen für MatchZys eigenen Connect-und-Ready-Ablauf. Ohne zugewiesenen Map-Pool bleibt "Pracc starten" beim ursprünglichen, konservativeren Verhalten: nur sicherstellen, dass der Server-Slot läuft. **Wichtig:** Das exakte MatchZy-Command-/JSON-Format (`matchzy_loadmatch_url`, Config-Schema) ist eine Best-Effort-Annahme anhand der öffentlichen MatchZy-Dokumentation – vor dem ersten echten Einsatz gegen einen live laufenden MatchZy-Server verifizieren.
+
 ### Sicherheit
 
 - **SQL-Injection:** ausgeschlossen, da ausschließlich über das Django-ORM auf die Datenbank zugegriffen wird (`.filter()`, `.create()`, `.get()`, ...) – keine rohen SQL-Strings, kein `.raw()`, keine String-Interpolation in Queries irgendwo im Backend.
@@ -371,6 +415,10 @@ npm run start
 | `EMAIL_USE_TLS` | TLS beim SMTP-Versand verwenden | `true` |
 | `DEFAULT_FROM_EMAIL` | Absenderadresse | `Punishers Germany <no-reply@punishersgermany.de>` |
 | `LIBRETRANSLATE_URL` | Basis-URL einer LibreTranslate-Instanz für automatische News-Übersetzung (`news/translation.py`) | leer (Übersetzung wird übersprungen, Artikel speichert trotzdem) |
+| `GAMESERVER_SERVICE_TOKEN` | Geteiltes Secret für den einzigen eingehenden Aufruf vom separaten `gameserver-plattform`-Repo (Demo-Datei-Upload) – **derselbe Wert** muss dort in dessen eigener `.env` stehen (siehe "CS2-Gameserver-Integration") | leer (Demo-Upload-Endpunkt lehnt dann jeden Aufruf ab) |
+| `GAMESERVER_DEMOS_ROOT` | Lokaler Ordner für hochgeladene Pracc-Demos – bewusst **außerhalb** von `MEDIA_ROOT`, damit Demos nie über die öffentliche Media-URL abrufbar sind | `backend/private_media/gameserver_demos/` |
+| `GAMESERVER_DEMO_DOWNLOAD_DAYS` | Tage, die ein Demo-Download-Link (`/gameservers/praccs/{id}/demo/`) gültig bleibt | `7` |
+| `GAMESERVER_DEMO_RETENTION_DAYS` | Tage, nach denen `python manage.py cleanup_expired_demos` die Demo-Datei endgültig von der Platte löscht | `14` |
 
 **`frontend/.env.development` / `.env.production`** (siehe `frontend/.env.example`):
 

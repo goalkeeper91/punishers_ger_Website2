@@ -3426,7 +3426,7 @@ def build_server_config_schema(config: ServerConfig) -> ServerConfigSchema:
     )
 
 @app.get("/admin/gameservers/configs/", response_model=List[ServerConfigSchema])
-async def get_server_configs(current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers"))):
+async def get_server_configs(current_user: CustomUser = Depends(require_gameservers_read)):
     configs = await sync_to_async(list)(ServerConfig.objects.all())
     return [build_server_config_schema(c) for c in configs]
 
@@ -3532,6 +3532,13 @@ class PraccSchema(BaseModel):
     demo_expires_at: Optional[str] = None
     match_ended_at: Optional[str] = None
     created_at: str
+    # Set only once the assigned slot's VPS has an IP - shown to both teams
+    # so they know where to connect; MatchZy takes it from there (veto if
+    # the pool has >1 map, then each team's own .ready).
+    slot_ip: Optional[str] = None
+    slot_port: Optional[int] = None
+    map_pool_config_id: Optional[int] = None
+    map_pool_config_label: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -3541,6 +3548,7 @@ class PraccCreate(BaseModel):
     own_team_id: int
     opponent_team_name: str
     scheduled_at: str
+    map_pool_config_id: Optional[int] = None
 
 class PraccStatusUpdate(BaseModel):
     status: str
@@ -3568,6 +3576,10 @@ def build_pracc_schema(pracc: Pracc) -> PraccSchema:
         demo_expires_at=demo_expires_at.isoformat() if demo_expires_at else None,
         match_ended_at=pracc.match_ended_at.isoformat() if pracc.match_ended_at else None,
         created_at=pracc.created_at.isoformat(),
+        slot_ip=pracc.slot.vps.ip_address,
+        slot_port=pracc.slot.port,
+        map_pool_config_id=pracc.map_pool_config_id,
+        map_pool_config_label=pracc.map_pool_config.label if pracc.map_pool_config_id else None,
     )
 
 async def _resolve_pracc_team_scope(current_user: CustomUser) -> Optional[int]:
@@ -3590,7 +3602,7 @@ async def get_praccs(current_user: CustomUser = Depends(get_current_user)):
     scope = await _resolve_pracc_team_scope(current_user)
 
     def _list():
-        qs = Pracc.objects.select_related('slot', 'own_team', 'created_by').all()
+        qs = Pracc.objects.select_related('slot', 'slot__vps', 'own_team', 'created_by', 'map_pool_config').all()
         if scope is not None:
             qs = qs.filter(own_team_id=scope)
         return list(qs)
@@ -3610,13 +3622,21 @@ async def create_pracc(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Gegner-Teamname erforderlich.")
 
     try:
-        slot = await sync_to_async(ServerSlot.objects.get)(id=payload.slot_id)
+        slot = await sync_to_async(ServerSlot.objects.select_related('vps').get)(id=payload.slot_id)
     except ServerSlot.DoesNotExist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot nicht gefunden.")
     try:
         team = await sync_to_async(Team.objects.get)(id=payload.own_team_id)
     except Team.DoesNotExist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team nicht gefunden.")
+    map_pool_config = None
+    if payload.map_pool_config_id is not None:
+        try:
+            map_pool_config = await sync_to_async(ServerConfig.objects.get)(id=payload.map_pool_config_id)
+        except ServerConfig.DoesNotExist:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Map-Pool-Config nicht gefunden.")
+        if map_pool_config.kind != "map_pool":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Diese Config ist kein Map-Pool.")
     try:
         scheduled_at = datetime.fromisoformat(payload.scheduled_at)
     except ValueError:
@@ -3636,6 +3656,7 @@ async def create_pracc(
             opponent_team_name=payload.opponent_team_name.strip(),
             scheduled_at=scheduled_at,
             created_by=current_user,
+            map_pool_config=map_pool_config,
         )
         _announce_pracc_created(pracc)
         return pracc
@@ -3653,7 +3674,7 @@ async def update_pracc_status(
     if payload.status not in PRACC_STATUS_CHOICES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unbekannter Status: {payload.status}")
     try:
-        pracc = await sync_to_async(Pracc.objects.select_related('slot', 'own_team', 'created_by').get)(id=pracc_id)
+        pracc = await sync_to_async(Pracc.objects.select_related('slot', 'slot__vps', 'own_team', 'created_by', 'map_pool_config').get)(id=pracc_id)
     except Pracc.DoesNotExist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pracc nicht gefunden.")
 
@@ -3699,6 +3720,43 @@ async def update_pracc_status(
 
     await sync_to_async(_log_action)(current_user, "update", "Pracc", pracc.id, str(pracc), {"status": payload.status})
     return build_pracc_schema(pracc)
+
+@app.get("/internal/gameservers/praccs/{pracc_id}/matchzy-config/")
+async def get_pracc_matchzy_config(pracc_id: int):
+    """Generates a MatchZy match-config JSON on the fly for a Pracc with an
+    assigned map-pool config - gameserver-plattform's handle_start_pracc()
+    RCONs `matchzy_loadmatch_url` pointing at this URL (see
+    redis_bridge.py's publish_start_pracc()). No auth here, same as the
+    Phase 3 config_url this mirrors - team names and a map list aren't
+    secret, only the RCON password (which never appears in this response).
+    Deliberately minimal: team names + num_maps=1 + a map pool is enough for
+    MatchZy to run its own veto (if the pool has >1 map) and each team's
+    `.ready` - see Pracc's own docstring for why this doesn't attempt a
+    Steam-ID-locked roster config. JSON shape is a best-effort guess at
+    MatchZy's documented config schema - verify against a real deploy."""
+    try:
+        pracc = await sync_to_async(Pracc.objects.select_related('own_team', 'map_pool_config').get)(id=pracc_id)
+    except Pracc.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pracc nicht gefunden.")
+    if not pracc.map_pool_config:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kein Map-Pool zugewiesen.")
+
+    def _read_maplist():
+        with open(pracc.map_pool_config.file.path, 'r', encoding='utf-8') as f:
+            return [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+
+    maplist = await sync_to_async(_read_maplist)()
+    if not maplist:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Map-Pool-Datei ist leer.")
+
+    return {
+        "matchid": str(pracc.id),
+        "num_maps": 1,
+        "maplist": maplist,
+        "clinch_series": False,
+        "team1": {"name": pracc.own_team.name},
+        "team2": {"name": pracc.opponent_team_name},
+    }
 
 # --- CS2 gameserver dashboard (Phase 5: demo retrieval) ---
 # Service-to-service, not a logged-in admin action: gameserver-plattform
@@ -3790,7 +3848,7 @@ async def get_my_team_praccs(current_user: CustomUser = Depends(get_current_user
 
     def _list():
         return list(
-            Pracc.objects.select_related('slot', 'own_team', 'created_by').filter(own_team_id=current_user.team_id)
+            Pracc.objects.select_related('slot', 'slot__vps', 'own_team', 'created_by', 'map_pool_config').filter(own_team_id=current_user.team_id)
         )
 
     praccs = await sync_to_async(_list)()

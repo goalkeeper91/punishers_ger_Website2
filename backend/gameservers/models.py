@@ -120,18 +120,26 @@ class ServerSlot(models.Model):
 
 class Pracc(models.Model):
     """A scheduled scrim ("Pracc") between one of our own teams and an
-    opponent, assigned to one of the CS2 slots on the rented VPS. Starting
-    one (see redis_bridge.py's publish_start_pracc()) only makes sure the
-    assigned slot's container is actually running - deliberately NOT the
-    full MatchZy match-config automation (team rosters, map veto) the
-    original plan sketched. Building even a one-sided roster from
-    CustomUser.steam_id would be possible for own_team, but opponent_team_name
-    is deliberately free text, not a linked Team - the opponent has no
-    modeled roster in this system at all, so a real two-sided MatchZy config
-    isn't buildable regardless. That (and the plan's own note that MatchZy's
-    exact convars are unverified pending a real deploy) is why this stays at
-    scheduling + Teammanager-scoped visibility + making sure the server is
-    up, same guarantee START_SLOT already gives."""
+    opponent, assigned to one of the CS2 slots on the rented VPS.
+
+    If `map_pool_config` is set, starting the Pracc (see redis_bridge.py's
+    publish_start_pracc()) loads a generated MatchZy match config (team
+    names + this map pool, `num_maps=1`) via RCON `matchzy_loadmatch_url`
+    once the slot's container is confirmed running - see
+    fastapi_app/main.py's get_pracc_matchzy_config(). From there MatchZy
+    itself runs the veto (if the pool has more than one map) and each
+    team's own `.ready` - no further dashboard involvement needed. This is
+    deliberately NOT a Steam-ID-locked competitive config (no player
+    rosters, no side-picking override): opponent_team_name is free text,
+    not a linked Team, so there's no modeled roster for that side anyway,
+    and a pracc doesn't need one - team names + a map pool is enough for
+    MatchZy's own connect-and-ready flow. If `map_pool_config` is left
+    unset, starting a Pracc still just guarantees the slot is running
+    (the original, more conservative behavior) - useful for slots where
+    MatchZy isn't installed, or for a manually-run practice session.
+    MatchZy's exact command/JSON-shape is a best-effort guess at its
+    documented config schema - verify against a real deploy before relying
+    on this for an actual scrim."""
 
     STATUS_CHOICES = [
         ("scheduled", "Geplant"),
@@ -145,6 +153,12 @@ class Pracc(models.Model):
     opponent_team_name = models.CharField(max_length=100)
     scheduled_at = models.DateTimeField()
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="scheduled")
+    # Optional - see the class docstring. Restricted to kind='map_pool' at
+    # the API validation layer (fastapi_app/main.py's create_pracc()), not
+    # via a DB constraint, same convention as ServerSlot.current_config above.
+    map_pool_config = models.ForeignKey(
+        ServerConfig, on_delete=models.SET_NULL, null=True, blank=True, related_name="praccs_using_pool"
+    )
     created_by = models.ForeignKey(
         'users.CustomUser', on_delete=models.SET_NULL, null=True, blank=True, related_name="created_praccs"
     )

@@ -13,6 +13,9 @@ interface Pracc {
   status: "scheduled" | "live" | "finished" | "cancelled";
   demo_available: boolean;
   demo_expires_at: string | null;
+  slot_ip: string | null;
+  slot_port: number | null;
+  map_pool_config_label: string | null;
 }
 
 const STATUS_LABELS: Record<Pracc["status"], string> = {
@@ -93,6 +96,14 @@ export default function TeamPraccsPage() {
                   <p className="text-gray-500 text-xs">
                     {formatWallClock(pracc.scheduled_at)} UTC · {pracc.slot_label}
                   </p>
+                  {pracc.map_pool_config_label && (
+                    <p className="text-gray-500 text-xs">Map-Pool: {pracc.map_pool_config_label}</p>
+                  )}
+                  {(pracc.status === "scheduled" || pracc.status === "live") && pracc.slot_ip && (
+                    <p className="text-gray-500 text-xs">
+                      Connect: <span className="font-mono">{pracc.slot_ip}:{pracc.slot_port}</span>
+                    </p>
+                  )}
                   {pracc.demo_available && (
                     <div className="flex items-center gap-2 mt-1">
                       <button
