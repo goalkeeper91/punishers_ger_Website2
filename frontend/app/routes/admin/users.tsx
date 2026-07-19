@@ -151,6 +151,26 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       return { success: isSuperuser ? "Admin-Rechte gewährt." : "Admin-Rechte entzogen." };
     }
 
+    if (intent === "hardDelete") {
+      const userId = formData.get("userId");
+      const response = await authFetch(`/admin/users/${userId}/`, { method: "DELETE" });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: "Konto endgültig gelöscht." };
+    }
+
+    if (intent === "softDelete") {
+      const userId = formData.get("userId");
+      const response = await authFetch(`/admin/users/${userId}/soft-delete/`, { method: "PUT" });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: "Konto gelöscht." };
+    }
+
     // Default: activate/deactivate toggle
     const userId = formData.get("userId");
     const newStatus = formData.get("newStatus");
@@ -365,16 +385,51 @@ export default function AdminUsersPage() {
                     </td>
                   )}
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <Form method="post">
-                      <input type="hidden" name="userId" value={user.id} />
-                      <input type="hidden" name="newStatus" value={String(!user.is_active)} />
-                      <button
-                        type="submit"
-                        className={`py-2 px-4 rounded-md text-white text-xs font-semibold ${user.is_active ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
-                      >
-                        {user.is_active ? 'Deaktivieren' : 'Aktivieren'}
-                      </button>
-                    </Form>
+                    <div className="flex justify-end gap-2">
+                      <Form method="post">
+                        <input type="hidden" name="userId" value={user.id} />
+                        <input type="hidden" name="newStatus" value={String(!user.is_active)} />
+                        <button
+                          type="submit"
+                          className={`py-2 px-4 rounded-md text-white text-xs font-semibold ${user.is_active ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                        >
+                          {user.is_active ? 'Deaktivieren' : 'Aktivieren'}
+                        </button>
+                      </Form>
+                      {user.activated_at === null ? (
+                        <Form
+                          method="post"
+                          onSubmit={(e) => { if (!confirm(`Konto "${user.username}" endgültig löschen? Das kann nicht rückgängig gemacht werden.`)) e.preventDefault(); }}
+                        >
+                          <input type="hidden" name="_intent" value="hardDelete" />
+                          <input type="hidden" name="userId" value={user.id} />
+                          <button
+                            type="submit"
+                            disabled={user.id === currentUserId}
+                            title={user.id === currentUserId ? "Du kannst dein eigenes Konto nicht löschen." : undefined}
+                            className="py-2 px-4 rounded-md text-white text-xs font-semibold bg-red-800 hover:bg-red-900 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Endgültig löschen
+                          </button>
+                        </Form>
+                      ) : (
+                        <Form
+                          method="post"
+                          onSubmit={(e) => { if (!confirm(`Konto "${user.username}" löschen?`)) e.preventDefault(); }}
+                        >
+                          <input type="hidden" name="_intent" value="softDelete" />
+                          <input type="hidden" name="userId" value={user.id} />
+                          <button
+                            type="submit"
+                            disabled={user.id === currentUserId}
+                            title={user.id === currentUserId ? "Du kannst dein eigenes Konto nicht löschen." : undefined}
+                            className="py-2 px-4 rounded-md text-white text-xs font-semibold bg-gray-600 hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Löschen
+                          </button>
+                        </Form>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

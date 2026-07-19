@@ -405,6 +405,8 @@ function ReactionRolesEditor({ guildId, initial }: { guildId: string; initial: R
             <input
               type="text"
               value={role.emoji}
+              placeholder="✅ oder Emoji-ID"
+              title="Standard-Emoji direkt einfügen, oder bei eigenen Server-Emojis die Emoji-ID (Rechtsklick auf das Emoji in Discord -> ID kopieren)"
               onChange={(e) => updateRole(index, { emoji: e.target.value })}
               className={inputClass}
             />

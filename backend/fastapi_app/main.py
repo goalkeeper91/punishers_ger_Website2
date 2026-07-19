@@ -271,6 +271,7 @@ class CustomUserSchema(BaseModel):
     is_active: bool
     is_staff: bool = False
     is_superuser: bool = False
+    activated_at: Optional[str] = None
     roles: List[str] = []
     permissions: List[str] = []
 
@@ -732,6 +733,7 @@ async def build_user_schema(user: CustomUser) -> CustomUserSchema:
         is_active=user.is_active,
         is_staff=user.is_staff,
         is_superuser=user.is_superuser,
+        activated_at=user.activated_at.isoformat() if user.activated_at else None,
         roles=roles,
         permissions=permissions,
     )
@@ -1240,7 +1242,11 @@ async def activate_user(
 
     was_inactive = not user.is_active
     user.is_active = activation_data.is_active
-    await sync_to_async(user.save)(update_fields=['is_active'])
+    update_fields = ['is_active']
+    if was_inactive and user.is_active and user.activated_at is None:
+        user.activated_at = datetime.now(timezone.utc)
+        update_fields.append('activated_at')
+    await sync_to_async(user.save)(update_fields=update_fields)
     await sync_to_async(_log_action)(
         current_admin, "activate" if activation_data.is_active else "deactivate", "CustomUser", user.id, user.username,
     )
@@ -1254,8 +1260,70 @@ async def activate_user(
 async def get_all_users_for_admin(
     current_admin: CustomUser = Depends(require_permission("users.manage_users")),
 ):
-    users = await sync_to_async(list)(CustomUser.objects.all().order_by('username'))
+    users = await sync_to_async(list)(CustomUser.objects.filter(is_deleted=False).order_by('username'))
     return [await build_user_schema(user) for user in users]
+
+class PendingUsersCountSchema(BaseModel):
+    count: int
+
+@app.get("/admin/users/pending-count/", response_model=PendingUsersCountSchema)
+async def get_pending_users_count(current_user: CustomUser = Depends(require_permission("users.manage_users"))):
+    count = await sync_to_async(CustomUser.objects.filter(is_active=False, is_deleted=False).count)()
+    return PendingUsersCountSchema(count=count)
+
+@app.delete("/admin/users/{user_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user_account(
+    user_id: int,
+    current_admin: CustomUser = Depends(require_permission("users.manage_users")),
+):
+    """Hard delete - only for accounts that were NEVER activated (fresh/spam
+    registrations). A previously-real account (activated_at set, even if
+    currently deactivated) must go through soft_delete_user_account instead,
+    so an admin can't accidentally destroy real user history."""
+    if user_id == current_admin.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Du kannst dein eigenes Konto nicht löschen.")
+    try:
+        user = await sync_to_async(CustomUser.objects.get)(id=user_id)
+    except CustomUser.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.activated_at is not None or user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nur nie aktivierte Konten können endgültig gelöscht werden. Nutze für aktivierte Konten die Soft-Delete-Funktion.",
+        )
+    username = user.username
+    await sync_to_async(user.delete)()
+    await sync_to_async(_log_action)(current_admin, "delete", "CustomUser", user_id, username)
+
+@app.put("/admin/users/{user_id}/soft-delete/", response_model=CustomUserSchema)
+async def soft_delete_user_account(
+    user_id: int,
+    current_admin: CustomUser = Depends(require_permission("users.manage_users")),
+):
+    """Soft delete - for accounts that were activated at some point. Keeps
+    the row (and its history/relations) but hides it from the admin list
+    (get_all_users_for_admin filters is_deleted=False) and revokes access."""
+    if user_id == current_admin.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Du kannst dein eigenes Konto nicht löschen.")
+    try:
+        user = await sync_to_async(CustomUser.objects.get)(id=user_id)
+    except CustomUser.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.activated_at is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Konto wurde noch nie aktiviert. Nutze stattdessen die endgültige Löschfunktion.")
+    if user.is_deleted:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Konto ist bereits gelöscht.")
+
+    def _save():
+        user.is_deleted = True
+        user.deleted_at = datetime.now(timezone.utc)
+        user.is_active = False
+        user.save(update_fields=['is_deleted', 'deleted_at', 'is_active'])
+        return user
+
+    user = await sync_to_async(_save)()
+    await sync_to_async(_log_action)(current_admin, "soft_delete", "CustomUser", user.id, user.username)
+    return await build_user_schema(user)
 
 async def build_news_schema(article: NewsArticle, lang: Optional[str] = None) -> NewsArticleSchema:
     author_name = await sync_to_async(lambda: article.author.username if article.author else None)()

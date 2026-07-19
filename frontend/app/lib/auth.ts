@@ -29,6 +29,12 @@ export interface AuthUser {
   is_active: boolean;
   is_staff: boolean;
   is_superuser: boolean;
+  // Timestamp of the account's first activation, or null if it has never
+  // been activated (a fresh/pending registration) - see admin/users.tsx,
+  // which uses this to decide whether an account is eligible for hard
+  // delete (never activated) or only soft-delete (was activated at some
+  // point, even if currently deactivated).
+  activated_at: string | null;
   roles: string[];
   // Real Django permission codenames ("app_label.codename", e.g.
   // "news.manage_news") granted via the user's roles - see

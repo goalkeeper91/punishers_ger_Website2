@@ -13,15 +13,24 @@ interface AdminNavProps {
  * with the Profile page's sidebar. */
 export default function AdminNav({ active }: AdminNavProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [pendingUsersCount, setPendingUsersCount] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     authFetch("/users/me/")
       .then((res) => (res.ok ? res.json() : null))
       .then(setUser)
       .catch(() => setUser(null));
+
+    // Not-yet-activated registration count for the "Benutzer & Rollen" badge -
+    // 403s silently for anyone without users.manage_users, same "just don't
+    // show it" tolerance as every other transient-failure poll in this app.
+    authFetch("/admin/users/pending-count/")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setPendingUsersCount(data?.count))
+      .catch(() => setPendingUsersCount(undefined));
   }, []);
 
-  const items = getAdminNavItems(user);
+  const items = getAdminNavItems(user, { pendingUsersCount });
 
   return (
     <nav className="flex flex-wrap gap-3 justify-center mb-10">
@@ -36,6 +45,11 @@ export default function AdminNav({ active }: AdminNavProps) {
           }`}
         >
           {item.label}
+          {item.badgeCount ? (
+            <span className="ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-yellow-500 text-gray-900 text-xs font-bold">
+              {item.badgeCount}
+            </span>
+          ) : null}
         </a>
       ))}
     </nav>

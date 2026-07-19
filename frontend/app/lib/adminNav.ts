@@ -12,9 +12,10 @@ export interface AdminNavItem {
   key: AdminNavKey;
   href: string;
   label: string;
+  badgeCount?: number;
 }
 
-export function getAdminNavItems(user: AuthUser | null): AdminNavItem[] {
+export function getAdminNavItems(user: AuthUser | null, opts?: { pendingUsersCount?: number }): AdminNavItem[] {
   if (!user) return [];
 
   const isAdmin = user.is_superuser;
@@ -38,10 +39,11 @@ export function getAdminNavItems(user: AuthUser | null): AdminNavItem[] {
   if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings || canApplications || canDiscordBot || canSocialMediaVault) {
     items.push({ key: "dashboard", href: "/admin", label: "Dashboard" });
   }
+  const pendingUsersCount = opts?.pendingUsersCount;
   if (isAdmin) {
-    items.push({ key: "users", href: "/admin/users", label: "Benutzer & Rollen" });
+    items.push({ key: "users", href: "/admin/users", label: "Benutzer & Rollen", badgeCount: pendingUsersCount });
   } else if (canManageUsers) {
-    items.push({ key: "users", href: "/admin/users", label: "Benutzer" });
+    items.push({ key: "users", href: "/admin/users", label: "Benutzer", badgeCount: pendingUsersCount });
   }
   if (canNews) {
     items.push({ key: "news", href: "/admin/news", label: "News" });

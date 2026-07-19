@@ -42,6 +42,11 @@ class CustomUser(AbstractUser):
     # Das 'team'-Feld wird aus CustomUser entfernt, da es im Player-Modell besser aufgehoben ist.
     team = models.ForeignKey('teams.Team', on_delete=models.SET_NULL, null=True, blank=True, related_name='members')
 
+    # Freischaltungs-/Löschstatus für die Admin-Nutzerverwaltung (fastapi_app/main.py).
+    activated_at = models.DateTimeField(null=True, blank=True, help_text="Zeitpunkt der ersten Freischaltung - null bedeutet, das Konto wurde noch nie aktiviert (frische Registrierung).")
+    is_deleted = models.BooleanField(default=False, help_text="Soft-gelöscht - aus der Admin-Liste ausgeblendet und deaktiviert, Daten bleiben aber erhalten.")
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
     # Hier könnten weitere Felder für Zu-/Absagen, etc. hinzugefügt werden
     # z.B. availability_status = models.CharField(max_length=50, blank=True, null=True)
 

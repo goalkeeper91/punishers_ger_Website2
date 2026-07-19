@@ -75,7 +75,7 @@ export default function Home() {
 
         {/* Teams Section - main teams only, real data (full roster on /teams) */}
         {teaserTeams.length > 0 && (
-          <section id="teams" className="py-16 md:py-24 bg-gray-900">
+          <section id="teams" className="py-16 md:py-24 bg-gray-950">
             <div className="container mx-auto px-4 text-center">
               <h2 className="text-4xl font-bold text-white mb-6">{t("teams_section.heading")}</h2>
               <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
@@ -106,7 +106,7 @@ export default function Home() {
 
         {/* Content Creators Section - real, featured creators only (full list on /creators) */}
         {featuredCreators.length > 0 && (
-          <section id="creators" className="py-16 md:py-24 bg-gray-950">
+          <section id="creators" className="py-16 md:py-24 bg-gray-900">
             <div className="container mx-auto px-4 text-center">
               <h2 className="text-4xl font-bold text-white mb-6">{t("creators_section.heading")}</h2>
               <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
@@ -141,7 +141,7 @@ export default function Home() {
         )}
 
         {/* Join Us Section */}
-        <section id="join-us" className="py-16 md:py-24 bg-gray-900">
+        <section id="join-us" className="py-16 md:py-24 bg-gray-950">
           <div className="container mx-auto px-4 text-center">
             <h2 className="text-4xl font-bold text-white mb-6">{t("join_section.heading")}</h2>
             <p className="text-lg text-gray-400 mb-12 max-w-3xl mx-auto">
