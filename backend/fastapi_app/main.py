@@ -3829,6 +3829,85 @@ async def download_pracc_demo(
 
     return FileResponse(file_path, media_type="application/octet-stream", filename=pracc.demo_filename)
 
+# --- CS2 gameserver dashboard (Phase 6: player self-service util-session) ---
+# The util-practice slot (ServerSlot.kind == "util") is shared, unscheduled
+# nade-lineup/warmup practice - unlike Praccs, any registered player may
+# start/stop it themselves, not just a Teammanager/admin. No reservation
+# system exists (mirrors the plan's own "no hard double-booking prevention"
+# stance for Praccs) - starting an already-running slot is just a no-op.
+
+class UtilSessionSchema(BaseModel):
+    slot_id: int
+    label: str
+    status: str
+    last_synced_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+def build_util_session_schema(slot: ServerSlot) -> UtilSessionSchema:
+    return UtilSessionSchema(
+        slot_id=slot.id,
+        label=slot.label,
+        status=slot.last_known_status,
+        last_synced_at=slot.last_synced_at.isoformat() if slot.last_synced_at else None,
+    )
+
+async def _get_player_or_404(current_user: CustomUser) -> Player:
+    """Mirrors the inline pattern GET/PUT /players/me/ already use - no
+    shared dependency exists for this in the codebase, so this follows the
+    same shape rather than inventing a new one."""
+    player = await sync_to_async(Player.objects.select_related('user', 'team').filter(user=current_user).first)()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kein Spielerprofil vorhanden.")
+    return player
+
+@app.get("/gameservers/util-session/", response_model=Optional[UtilSessionSchema])
+async def get_util_session(current_user: CustomUser = Depends(get_current_user)):
+    await _get_player_or_404(current_user)
+    slot = await sync_to_async(ServerSlot.objects.filter(kind='util').first)()
+    return build_util_session_schema(slot) if slot else None
+
+@app.post("/gameservers/util-session/start/", response_model=UtilSessionSchema)
+async def start_util_session(current_user: CustomUser = Depends(get_current_user)):
+    await _get_player_or_404(current_user)
+    slot = await sync_to_async(ServerSlot.objects.filter(kind='util').first)()
+    if slot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kein Util-Server konfiguriert.")
+
+    published = await sync_to_async(gameserver_redis_bridge.publish_slot_power)(slot, True)
+    if not published:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Befehl konnte nicht an den Gameserver-Dienst gesendet werden.")
+
+    def _mark():
+        slot.last_known_status = "starting"
+        slot.save(update_fields=['last_known_status'])
+        return slot
+
+    slot = await sync_to_async(_mark)()
+    await sync_to_async(_log_action)(current_user, "update", "ServerSlot", slot.id, slot.label, {"action": "start", "self_service": True})
+    return build_util_session_schema(slot)
+
+@app.post("/gameservers/util-session/stop/", response_model=UtilSessionSchema)
+async def stop_util_session(current_user: CustomUser = Depends(get_current_user)):
+    await _get_player_or_404(current_user)
+    slot = await sync_to_async(ServerSlot.objects.filter(kind='util').first)()
+    if slot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kein Util-Server konfiguriert.")
+
+    published = await sync_to_async(gameserver_redis_bridge.publish_slot_power)(slot, False)
+    if not published:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Befehl konnte nicht an den Gameserver-Dienst gesendet werden.")
+
+    def _mark():
+        slot.last_known_status = "stopping"
+        slot.save(update_fields=['last_known_status'])
+        return slot
+
+    slot = await sync_to_async(_mark)()
+    await sync_to_async(_log_action)(current_user, "update", "ServerSlot", slot.id, slot.label, {"action": "stop", "self_service": True})
+    return build_util_session_schema(slot)
+
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every
 # add/change/delete/view permission Django creates per model, which would be

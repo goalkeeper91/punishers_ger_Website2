@@ -309,6 +309,11 @@ export default function ProfilePage() {
                 </a>
               </li>
             )}
+            <li className="mb-4">
+              <a href="/util-training" className="block text-gray-300 hover:text-white transition-colors duration-200">
+                Util-Training
+              </a>
+            </li>
             {/* Add more profile-specific routes here */}
           </ul>
 
