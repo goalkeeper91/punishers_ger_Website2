@@ -18,7 +18,7 @@ from typing import Optional
 import redis
 from django.db import close_old_connections
 
-from .models import HetznerVPS
+from .models import HetznerVPS, ServerSlot
 from .redis_bridge import get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,20 @@ def _handle_message(payload: dict) -> None:
                 logger.info("VPS-Status aktualisiert: %s -> %s", hetzner_server_id, new_status)
             else:
                 logger.warning("VPS_STATUS_CHANGED für unbekannte hetzner_server_id: %s", hetzner_server_id)
+
+        elif event == "SLOT_STATUS_CHANGED":
+            slot_id = payload.get("slot_id")
+            new_status = payload.get("status")
+            if not slot_id or not new_status:
+                return
+            updated = ServerSlot.objects.filter(id=slot_id).update(
+                last_known_status=new_status,
+                last_synced_at=datetime.now(timezone.utc),
+            )
+            if updated:
+                logger.info("Slot-Status aktualisiert: %s -> %s", slot_id, new_status)
+            else:
+                logger.warning("SLOT_STATUS_CHANGED für unbekannte slot_id: %s", slot_id)
     finally:
         close_old_connections()
 

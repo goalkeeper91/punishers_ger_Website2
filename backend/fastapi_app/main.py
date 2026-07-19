@@ -40,7 +40,7 @@ from discord_bot import redis_bridge as discord_redis_bridge
 from discord_bot.listener import start_listener as start_discord_listener, stop_listener as stop_discord_listener
 from discord_bot.scheduler import start_scheduler as start_discord_config_scheduler, stop_scheduler as stop_discord_config_scheduler
 from social_media.models import SocialMediaVaultSettings
-from gameservers.models import HetznerVPS
+from gameservers.models import HetznerVPS, ServerSlot
 from gameservers import redis_bridge as gameserver_redis_bridge
 from gameservers.listener import start_listener as start_gameserver_listener, stop_listener as stop_gameserver_listener
 from faceit_integration import sync as faceit_sync
@@ -3195,6 +3195,154 @@ async def set_hetzner_vps_power(
     vps = await sync_to_async(_mark_pending)()
     await sync_to_async(_log_action)(current_user, "update", "HetznerVPS", vps.id, vps.name, {"power_on": payload.power_on})
     return build_hetzner_vps_schema(vps)
+
+# --- CS2 gameserver dashboard (Phase 2: server slots / Docker containers) ---
+
+class ServerSlotSchema(BaseModel):
+    id: int
+    vps_id: int
+    label: str
+    kind: str
+    docker_container_name: str
+    port: int
+    last_known_status: str
+    last_synced_at: Optional[str] = None
+    # rcon_password deliberately never included here - see
+    # gameservers/redis_bridge.py's publish_create_slot() docstring.
+
+    class Config:
+        from_attributes = True
+
+class ServerSlotCreate(BaseModel):
+    label: str
+    kind: str
+    port: int
+    rcon_password: str
+
+SERVER_SLOT_KIND_CHOICES = {choice[0] for choice in ServerSlot.KIND_CHOICES}
+
+def build_server_slot_schema(slot: ServerSlot) -> ServerSlotSchema:
+    return ServerSlotSchema(
+        id=slot.id,
+        vps_id=slot.vps_id,
+        label=slot.label,
+        kind=slot.kind,
+        docker_container_name=slot.docker_container_name,
+        port=slot.port,
+        last_known_status=slot.last_known_status,
+        last_synced_at=slot.last_synced_at.isoformat() if slot.last_synced_at else None,
+    )
+
+@app.get("/admin/gameservers/slots/", response_model=List[ServerSlotSchema])
+async def get_server_slots(current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers"))):
+    slots = await sync_to_async(list)(ServerSlot.objects.select_related('vps').all())
+    return [build_server_slot_schema(s) for s in slots]
+
+@app.post("/admin/gameservers/slots/", response_model=ServerSlotSchema, status_code=status.HTTP_201_CREATED)
+async def create_server_slot(
+    payload: ServerSlotCreate,
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    if payload.kind not in SERVER_SLOT_KIND_CHOICES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unbekannte Slot-Art: {payload.kind}")
+    vps = await sync_to_async(HetznerVPS.objects.first)()
+    if vps is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kein VPS konfiguriert - zuerst einen VPS anlegen.")
+
+    def _create():
+        slot = ServerSlot.objects.create(
+            vps=vps,
+            label=payload.label.strip(),
+            kind=payload.kind,
+            port=payload.port,
+            rcon_password=payload.rcon_password,
+        )
+        # Auto-derived, not admin-entered - a Docker container name has to be
+        # unique and shell/DNS-safe, which a free-text field can't guarantee.
+        slot.docker_container_name = f"cs2-slot-{slot.id}"
+        slot.save(update_fields=['docker_container_name'])
+        return slot
+
+    slot = await sync_to_async(_create)()
+    published = await sync_to_async(gameserver_redis_bridge.publish_create_slot)(slot)
+    if not published:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Slot gespeichert, aber der Befehl zum Erstellen des Containers konnte nicht gesendet werden.",
+        )
+
+    def _mark_creating():
+        slot.last_known_status = "creating"
+        slot.save(update_fields=['last_known_status'])
+        return slot
+
+    slot = await sync_to_async(_mark_creating)()
+    await sync_to_async(_log_action)(current_user, "create", "ServerSlot", slot.id, slot.label)
+    return build_server_slot_schema(slot)
+
+@app.put("/admin/gameservers/slots/{slot_id}/start/", response_model=ServerSlotSchema)
+async def start_server_slot(
+    slot_id: int,
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    try:
+        slot = await sync_to_async(ServerSlot.objects.get)(id=slot_id)
+    except ServerSlot.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot nicht gefunden.")
+
+    published = await sync_to_async(gameserver_redis_bridge.publish_slot_power)(slot, True)
+    if not published:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Befehl konnte nicht an den Gameserver-Dienst gesendet werden.")
+
+    def _mark():
+        slot.last_known_status = "starting"
+        slot.save(update_fields=['last_known_status'])
+        return slot
+
+    slot = await sync_to_async(_mark)()
+    await sync_to_async(_log_action)(current_user, "update", "ServerSlot", slot.id, slot.label, {"action": "start"})
+    return build_server_slot_schema(slot)
+
+@app.put("/admin/gameservers/slots/{slot_id}/stop/", response_model=ServerSlotSchema)
+async def stop_server_slot(
+    slot_id: int,
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    try:
+        slot = await sync_to_async(ServerSlot.objects.get)(id=slot_id)
+    except ServerSlot.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot nicht gefunden.")
+
+    published = await sync_to_async(gameserver_redis_bridge.publish_slot_power)(slot, False)
+    if not published:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Befehl konnte nicht an den Gameserver-Dienst gesendet werden.")
+
+    def _mark():
+        slot.last_known_status = "stopping"
+        slot.save(update_fields=['last_known_status'])
+        return slot
+
+    slot = await sync_to_async(_mark)()
+    await sync_to_async(_log_action)(current_user, "update", "ServerSlot", slot.id, slot.label, {"action": "stop"})
+    return build_server_slot_schema(slot)
+
+@app.delete("/admin/gameservers/slots/{slot_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_server_slot(
+    slot_id: int,
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    try:
+        slot = await sync_to_async(ServerSlot.objects.get)(id=slot_id)
+    except ServerSlot.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot nicht gefunden.")
+
+    published = await sync_to_async(gameserver_redis_bridge.publish_delete_slot)(slot)
+    if not published:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Befehl zum Löschen des Containers konnte nicht gesendet werden.")
+
+    slot_id_val, slot_label = slot.id, slot.label
+    await sync_to_async(slot.delete)()
+    await sync_to_async(_log_action)(current_user, "delete", "ServerSlot", slot_id_val, slot_label)
 
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every

@@ -31,15 +31,51 @@ def get_redis_client() -> redis.Redis:
     )
 
 
-def publish_vps_power(power_on: bool) -> bool:
-    """Requests the gameserver-plattform side power the whole VPS on/off via
-    the Hetzner API. Never raises - a Redis outage just means the command
-    doesn't go out; the caller should tell the admin, not crash the request."""
-    payload = {"type": "POWER_VPS", "power_on": power_on}
+def _publish(payload: dict) -> bool:
     try:
         client = get_redis_client()
         client.publish(COMMANDS_CHANNEL, json.dumps(payload))
         return True
     except redis.RedisError as exc:
-        logger.warning("Gameserver-Power-Befehl fehlgeschlagen: %s", exc)
+        logger.warning("Gameserver-Befehl (%s) fehlgeschlagen: %s", payload.get("type"), exc)
         return False
+
+
+def publish_vps_power(power_on: bool) -> bool:
+    """Requests the gameserver-plattform side power the whole VPS on/off via
+    the Hetzner API. Never raises - a Redis outage just means the command
+    doesn't go out; the caller should tell the admin, not crash the request."""
+    return _publish({"type": "POWER_VPS", "power_on": power_on})
+
+
+def publish_create_slot(slot) -> bool:
+    """Asks the gameserver-plattform side to actually `docker run` this
+    slot's container over SSH. `rcon_password` is decrypted automatically by
+    ServerSlot.rcon_password's EncryptedTextField on read - this is the one
+    place the plaintext value ever leaves PunishersGer's DB, sent once over
+    the internal Redis instance, never logged or exposed via any API
+    response (see ServerSlotSchema in fastapi_app/main.py, which omits it)."""
+    return _publish({
+        "type": "CREATE_SLOT",
+        "slot_id": slot.id,
+        "docker_container_name": slot.docker_container_name,
+        "kind": slot.kind,
+        "port": slot.port,
+        "rcon_password": slot.rcon_password,
+    })
+
+
+def publish_slot_power(slot, start: bool) -> bool:
+    return _publish({
+        "type": "START_SLOT" if start else "STOP_SLOT",
+        "slot_id": slot.id,
+        "docker_container_name": slot.docker_container_name,
+    })
+
+
+def publish_delete_slot(slot) -> bool:
+    return _publish({
+        "type": "DELETE_SLOT",
+        "slot_id": slot.id,
+        "docker_container_name": slot.docker_container_name,
+    })
