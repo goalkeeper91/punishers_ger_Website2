@@ -302,6 +302,13 @@ export default function ProfilePage() {
                 {statsLabel}
               </a>
             </li>
+            {user.team_id && (
+              <li className="mb-4">
+                <a href="/praccs" className="block text-gray-300 hover:text-white transition-colors duration-200">
+                  Meine Praccs
+                </a>
+              </li>
+            )}
             {/* Add more profile-specific routes here */}
           </ul>
 

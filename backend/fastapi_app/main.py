@@ -2,15 +2,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import re
+import secrets
 
 import logging
 
 import jwt
-from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional
 import os
@@ -3523,7 +3524,12 @@ class PraccSchema(BaseModel):
     scheduled_at: str
     status: str
     created_by_username: Optional[str] = None
-    demo_url: Optional[str] = None
+    # No raw URL here on purpose - the demo file lives outside MEDIA_ROOT and
+    # is only readable through GET /gameservers/praccs/{id}/demo/, which
+    # re-checks both team membership and the download window itself. These
+    # two fields just tell the frontend whether to show that download link.
+    demo_available: bool = False
+    demo_expires_at: Optional[str] = None
     match_ended_at: Optional[str] = None
     created_at: str
 
@@ -3542,6 +3548,12 @@ class PraccStatusUpdate(BaseModel):
 PRACC_STATUS_CHOICES = {choice[0] for choice in Pracc.STATUS_CHOICES}
 
 def build_pracc_schema(pracc: Pracc) -> PraccSchema:
+    demo_expires_at = None
+    demo_available = False
+    if pracc.demo_filename and pracc.demo_uploaded_at:
+        demo_expires_at = pracc.demo_uploaded_at + timedelta(days=settings.GAMESERVER_DEMO_DOWNLOAD_DAYS)
+        demo_available = datetime.now(timezone.utc) < demo_expires_at
+
     return PraccSchema(
         id=pracc.id,
         slot_id=pracc.slot_id,
@@ -3552,7 +3564,8 @@ def build_pracc_schema(pracc: Pracc) -> PraccSchema:
         scheduled_at=pracc.scheduled_at.isoformat(),
         status=pracc.status,
         created_by_username=pracc.created_by.username if pracc.created_by else None,
-        demo_url=build_media_url(pracc.demo_file),
+        demo_available=demo_available,
+        demo_expires_at=demo_expires_at.isoformat() if demo_expires_at else None,
         match_ended_at=pracc.match_ended_at.isoformat() if pracc.match_ended_at else None,
         created_at=pracc.created_at.isoformat(),
     )
@@ -3669,6 +3682,11 @@ async def update_pracc_status(
             return pracc
 
         pracc = await sync_to_async(_mark_finished)()
+        # Best-effort, non-blocking: the match is already finished either
+        # way, a demo-retrieval hiccup shouldn't stop the admin from closing
+        # it out - gameserver-plattform just won't have anything to push
+        # back via /internal/gameservers/praccs/{id}/demo/ if this fails.
+        await sync_to_async(gameserver_redis_bridge.publish_retrieve_demo)(pracc)
     elif payload.status == "cancelled":
         def _mark_cancelled():
             pracc.status = "cancelled"
@@ -3681,6 +3699,135 @@ async def update_pracc_status(
 
     await sync_to_async(_log_action)(current_user, "update", "Pracc", pracc.id, str(pracc), {"status": payload.status})
     return build_pracc_schema(pracc)
+
+# --- CS2 gameserver dashboard (Phase 5: demo retrieval) ---
+# Service-to-service, not a logged-in admin action: gameserver-plattform
+# calls this once it's retrieved a finished Pracc's demo file over SFTP
+# (see redis_bridge.py's publish_retrieve_demo() docstring) - gated by a
+# static shared token in a custom header instead of a user JWT.
+
+ALLOWED_DEMO_EXTENSIONS = {".dem"}
+MAX_DEMO_SIZE_BYTES = 500 * 1024 * 1024  # 500 MB - CS2 demos run much larger than configs/images
+
+async def save_uploaded_demo(file: UploadFile, directory: str, filename_base: str) -> str:
+    """Same validate-then-write shape as save_uploaded_config() above, sized
+    and extension-restricted for CS2 .dem demo files."""
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in ALLOWED_DEMO_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Nicht unterstütztes Dateiformat. Erlaubt: {', '.join(sorted(ALLOWED_DEMO_EXTENSIONS))}",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Datei ist leer.")
+    if len(content) > MAX_DEMO_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Datei zu groß (max. {MAX_DEMO_SIZE_BYTES // (1024 * 1024)} MB).",
+        )
+
+    await sync_to_async(os.makedirs)(directory, exist_ok=True)
+    file_name = f"{filename_base}{extension}"
+    file_path = os.path.join(directory, file_name)
+
+    def _write():
+        with open(file_path, "wb") as buffer:
+            buffer.write(content)
+
+    try:
+        await sync_to_async(_write)()
+    finally:
+        await file.close()
+
+    return file_name
+
+@app.post("/internal/gameservers/praccs/{pracc_id}/demo/", status_code=status.HTTP_204_NO_CONTENT)
+async def upload_pracc_demo(
+    pracc_id: int,
+    file: UploadFile = File(...),
+    x_service_token: Optional[str] = Header(None, alias="X-Service-Token"),
+):
+    if not settings.GAMESERVER_SERVICE_TOKEN or not x_service_token or not secrets.compare_digest(
+        x_service_token, settings.GAMESERVER_SERVICE_TOKEN
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid service token")
+
+    try:
+        pracc = await sync_to_async(Pracc.objects.get)(id=pracc_id)
+    except Pracc.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pracc nicht gefunden.")
+
+    file_name = await save_uploaded_demo(file, settings.GAMESERVER_DEMOS_ROOT, f"pracc_{pracc.id}")
+    pracc.demo_filename = file_name
+    pracc.demo_uploaded_at = datetime.now(timezone.utc)
+    await sync_to_async(pracc.save)(update_fields=['demo_filename', 'demo_uploaded_at'])
+
+async def _can_access_pracc(current_user: CustomUser, pracc: Pracc) -> bool:
+    """True if current_user may view/download this specific Pracc: a
+    superuser, a gameservers.manage_gameservers holder, or ANY member of the
+    Pracc's own_team - not just its Teammanager, unlike
+    _resolve_pracc_team_scope() above (which gates the admin-scoped
+    management endpoints). This broader check is what makes
+    GET /gameservers/praccs/{id}/demo/ below usable by regular players."""
+    if current_user.is_superuser:
+        return True
+    has_blanket = await sync_to_async(current_user.has_perm)("gameservers.manage_gameservers")
+    if has_blanket:
+        return True
+    return current_user.team_id == pracc.own_team_id
+
+@app.get("/gameservers/praccs/team/", response_model=List[PraccSchema])
+async def get_my_team_praccs(current_user: CustomUser = Depends(get_current_user)):
+    """Self-service surface for any registered player (not just a
+    Teammanager/admin) to see their own team's Praccs and grab a finished
+    match's demo - separate from the admin-scoped
+    GET /admin/gameservers/praccs/ above, which stays limited to
+    Teammanager/blanket-permission management."""
+    if not current_user.team_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Du bist keinem Team zugeordnet.")
+
+    def _list():
+        return list(
+            Pracc.objects.select_related('slot', 'own_team', 'created_by').filter(own_team_id=current_user.team_id)
+        )
+
+    praccs = await sync_to_async(_list)()
+    return [build_pracc_schema(p) for p in praccs]
+
+@app.get("/gameservers/praccs/{pracc_id}/demo/")
+async def download_pracc_demo(
+    pracc_id: int,
+    current_user: CustomUser = Depends(get_current_user),
+):
+    """Authenticated, expiry-checked demo download - the only way to read a
+    file out of settings.GAMESERVER_DEMOS_ROOT (see Pracc.demo_filename's
+    docstring). Open to any member of the Pracc's own team, not just its
+    Teammanager - the "separate download function for our teams"."""
+    try:
+        pracc = await sync_to_async(Pracc.objects.select_related('own_team').get)(id=pracc_id)
+    except Pracc.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pracc nicht gefunden.")
+
+    if not await _can_access_pracc(current_user, pracc):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Keine Berechtigung für dieses Demo.")
+
+    if not pracc.demo_filename or not pracc.demo_uploaded_at:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kein Demo für diesen Pracc verfügbar.")
+
+    expires_at = pracc.demo_uploaded_at + timedelta(days=settings.GAMESERVER_DEMO_DOWNLOAD_DAYS)
+    if datetime.now(timezone.utc) >= expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Der Download-Zeitraum für dieses Demo ist abgelaufen ({settings.GAMESERVER_DEMO_DOWNLOAD_DAYS} Tage nach Hochladen).",
+        )
+
+    file_path = os.path.join(settings.GAMESERVER_DEMOS_ROOT, pracc.demo_filename)
+    if not await sync_to_async(os.path.isfile)(file_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demo-Datei nicht gefunden.")
+
+    return FileResponse(file_path, media_type="application/octet-stream", filename=pracc.demo_filename)
 
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every

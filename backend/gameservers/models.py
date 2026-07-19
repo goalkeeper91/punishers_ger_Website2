@@ -149,8 +149,16 @@ class Pracc(models.Model):
         'users.CustomUser', on_delete=models.SET_NULL, null=True, blank=True, related_name="created_praccs"
     )
     # Populated once gameserver-plattform retrieves it post-match (Phase 5) -
-    # empty until then.
-    demo_file = models.FileField(upload_to='gameserver_demos/', null=True, blank=True)
+    # empty until then. Deliberately a plain filename, not a Django FileField:
+    # a FileField is stored/served under MEDIA_ROOT, which fastapi_app/main.py
+    # mounts as a fully public StaticFiles directory - anyone with the URL
+    # could download a demo regardless of team membership or the 7-day
+    # download window below. The file itself lives in
+    # settings.GAMESERVER_DEMOS_ROOT instead (never mounted as static), and is
+    # only ever served through the authenticated, expiry-checked
+    # GET /gameservers/praccs/{id}/demo/ endpoint in fastapi_app/main.py.
+    demo_filename = models.CharField(max_length=255, null=True, blank=True)
+    demo_uploaded_at = models.DateTimeField(null=True, blank=True)
     match_ended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

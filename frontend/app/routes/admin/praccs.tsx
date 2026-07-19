@@ -1,8 +1,10 @@
+import { useState } from "react";
 import type { ClientLoaderFunction, ClientActionFunction } from "react-router";
 import { useLoaderData, useActionData, Form, redirect } from "react-router";
 import { authFetch, isLoggedIn, type AuthUser } from "~/lib/auth";
 import { API_BASE_URL } from "~/lib/config";
 import { extractErrorMessage } from "~/lib/errors";
+import { downloadAuthenticatedFile } from "~/lib/download";
 import AdminNav from "~/components/AdminNav";
 
 interface Pracc {
@@ -15,7 +17,8 @@ interface Pracc {
   scheduled_at: string;
   status: "scheduled" | "live" | "finished" | "cancelled";
   created_by_username: string | null;
-  demo_url: string | null;
+  demo_available: boolean;
+  demo_expires_at: string | null;
   match_ended_at: string | null;
   created_at: string;
 }
@@ -166,9 +169,19 @@ export default function AdminPraccsPage() {
   const actionData = useActionData() as
     | { error?: string; success?: string; errors?: { [key: string]: string } }
     | undefined;
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const isFullAccess = me.is_superuser || me.permissions.includes("gameservers.manage_gameservers");
   const praccSlots = slots.filter((slot) => slot.kind === "pracc");
+
+  const handleDownloadDemo = async (pracc: Pracc) => {
+    setDownloadError(null);
+    try {
+      await downloadAuthenticatedFile(`/gameservers/praccs/${pracc.id}/demo/`, `pracc_${pracc.id}.dem`);
+    } catch (error: any) {
+      setDownloadError(error.message || "Demo konnte nicht heruntergeladen werden.");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans py-12">
@@ -179,6 +192,7 @@ export default function AdminPraccsPage() {
         {actionData?.error && <div className="bg-red-800 text-white p-4 rounded-md mb-6 text-center">{actionData.error}</div>}
         {actionData?.errors?.general && <div className="bg-red-800 text-white p-4 rounded-md mb-6 text-center">{actionData.errors.general}</div>}
         {actionData?.success && <div className="bg-green-800 text-white p-4 rounded-md mb-6 text-center">{actionData.success}</div>}
+        {downloadError && <div className="bg-red-800 text-white p-4 rounded-md mb-6 text-center">{downloadError}</div>}
 
         <h2 className="text-2xl font-bold text-white mb-6">Praccs</h2>
 
@@ -194,10 +208,19 @@ export default function AdminPraccsPage() {
                     {formatWallClock(pracc.scheduled_at)} UTC · {pracc.slot_label}
                     {pracc.created_by_username && ` · von ${pracc.created_by_username}`}
                   </p>
-                  {pracc.demo_url && (
-                    <a href={pracc.demo_url} target="_blank" rel="noreferrer" className="text-xs text-red-400 hover:text-red-300 underline">
-                      Demo herunterladen
-                    </a>
+                  {pracc.demo_available && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadDemo(pracc)}
+                        className="text-xs text-red-400 hover:text-red-300 underline"
+                      >
+                        Demo herunterladen
+                      </button>
+                      {pracc.demo_expires_at && (
+                        <span className="text-xs text-gray-500">(verfügbar bis {formatWallClock(pracc.demo_expires_at)} UTC)</span>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">

@@ -136,6 +136,32 @@ DISCORD_REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 # save. Set to "0" to disable.
 DISCORD_CONFIG_SYNC_INTERVAL_MINUTES = int(os.environ.get("DISCORD_CONFIG_SYNC_INTERVAL_MINUTES", "5"))
 
+# Shared secret for the one inbound call from gameserver-plattform: it POSTs
+# a retrieved Pracc demo file back to /internal/gameservers/praccs/{id}/demo/
+# once a match ends (see fastapi_app/main.py). This is service-to-service,
+# not a logged-in admin action, so it's gated by this token in a custom
+# header rather than a user JWT - mirrors DISCORD_REDIS_HOST/PORT above in
+# spirit (a credential the two repos share, configured independently in
+# each's own .env, never committed).
+GAMESERVER_SERVICE_TOKEN = os.environ.get("GAMESERVER_SERVICE_TOKEN") or None
+
+# Pracc demo files are deliberately stored OUTSIDE MEDIA_ROOT, which
+# fastapi_app/main.py mounts as a fully public StaticFiles directory - a demo
+# is competitive intel for the two participating teams, not something to
+# leave downloadable by anyone with the URL. This directory is never mounted;
+# the only way to read a file from it is the authenticated, expiry-checked
+# GET /gameservers/praccs/{id}/demo/ endpoint.
+GAMESERVER_DEMOS_ROOT = os.environ.get(
+    "GAMESERVER_DEMOS_ROOT", str(BASE_DIR / "private_media" / "gameserver_demos")
+)
+# How many days after upload a demo stays downloadable via that endpoint.
+GAMESERVER_DEMO_DOWNLOAD_DAYS = int(os.environ.get("GAMESERVER_DEMO_DOWNLOAD_DAYS", "7"))
+# How many days after upload the gameservers.cleanup_expired_demos management
+# command actually deletes the file from disk (run via cron/Task Scheduler,
+# see that command's help text) - longer than the download window above so
+# there's a grace period after downloads close before the file is gone for good.
+GAMESERVER_DEMO_RETENTION_DAYS = int(os.environ.get("GAMESERVER_DEMO_RETENTION_DAYS", "14"))
+
 # Social-media reach stats (see social_stats/). YouTube Data API v3 key from
 # https://console.cloud.google.com/apis/credentials - public read-only, no
 # per-channel OAuth needed. Discord's invite-based member count needs no key

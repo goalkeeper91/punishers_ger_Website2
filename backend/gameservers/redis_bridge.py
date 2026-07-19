@@ -117,3 +117,21 @@ def publish_start_pracc(pracc) -> bool:
         "slot_id": pracc.slot_id,
         "docker_container_name": pracc.slot.docker_container_name,
     })
+
+
+def publish_retrieve_demo(pracc) -> bool:
+    """Asks the gameserver-plattform side to grab the newest .dem file out of
+    the Pracc's slot's bind-mounted demos dir and POST it back to
+    upload_url. The service token that endpoint checks is a static secret
+    configured independently in each repo's own .env (see
+    GAMESERVER_SERVICE_TOKEN in settings.py) - not carried in this command,
+    unlike the RCON/Hetzner credentials CREATE_SLOT/LOAD_CONFIG pass along,
+    since gameserver-plattform is the one calling PunishersGer here, not the
+    other way around."""
+    return _publish({
+        "type": "RETRIEVE_DEMO",
+        "pracc_id": pracc.id,
+        "slot_id": pracc.slot_id,
+        "docker_container_name": pracc.slot.docker_container_name,
+        "upload_url": f"{settings.BACKEND_BASE_URL}/internal/gameservers/praccs/{pracc.id}/demo/",
+    })

@@ -22,6 +22,7 @@ export default [
   route("/profile", "routes/profile/index.tsx"),   // Route for logged-in user's profile
   route("/profile/:username", "routes/profile.$username.tsx"), // Route for public profiles
   route("/stats", "routes/stats.tsx"), // Stats dashboard: role-scoped (Admin/Teammanager/Player)
+  route("/praccs", "routes/praccs.tsx"), // Self-service: any team member sees their own team's Praccs + demo downloads
   route("/admin", "routes/admin/dashboard.tsx"), // Admin dashboard overview
   route("/admin/users", "routes/admin/users.tsx"), // Admin user management dashboard
   route("/admin/news", "routes/admin/news.tsx"), // Admin news list
