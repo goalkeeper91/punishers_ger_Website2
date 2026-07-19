@@ -37,5 +37,6 @@ export default [
   route("/admin/applications", "routes/admin/applications.tsx"), // Admin/Teammanager: player applications (game-scoped for Teammanagers)
   route("/admin/discord", "routes/admin/discord.tsx"), // Admin: Discord bot status + announcement channel routing
   route("/admin/social-media", "routes/admin/social-media.tsx"), // Social Media Manager: embedded Vaultwarden credential vault
+  route("/admin/gameservers", "routes/admin/gameservers.tsx"), // Admin/Teammanager: CS2 gameserver (Hetzner VPS) control
   route("/admin/audit-log", "routes/admin/audit-log.tsx"), // Admin audit log (superuser-only)
 ] satisfies RouteConfig;

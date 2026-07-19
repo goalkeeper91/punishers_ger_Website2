@@ -22,8 +22,13 @@ class Team(models.Model):
 
 class Player(models.Model):
     team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True, related_name='players')
-    # Re-enabled user field
-    user = models.OneToOneField('users.CustomUser', on_delete=models.CASCADE, related_name='player_profile') # Assuming a CustomUser model in users app
+    # Null = a "guest" roster member with no registered account (e.g. a
+    # substitute or former player without site credentials) - see
+    # fastapi_app/main.py's create_player, which also keeps this user's
+    # CustomUser.team in sync with `team` above when a real account is
+    # linked (roster membership is the source of truth for a Teammanager's
+    # permission scope, not a separately-set field).
+    user = models.OneToOneField('users.CustomUser', on_delete=models.CASCADE, null=True, blank=True, related_name='player_profile')
     ingame_name = models.CharField(max_length=100)
     role = models.CharField(max_length=100, blank=True, null=True) # e.g., "AWPer", "Support", "Mid-Laner"
     image = models.ImageField(upload_to='players/images/', blank=True, null=True)

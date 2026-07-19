@@ -6,7 +6,7 @@
 
 import { hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "./auth";
 
-export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media";
+export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers";
 
 export interface AdminNavItem {
   key: AdminNavKey;
@@ -36,10 +36,11 @@ export function getAdminNavItems(
   const canApplications = hasPerm("applications.manage_applications");
   const canDiscordBot = hasPerm("discord_bot.manage_discord_bot");
   const canSocialMediaVault = hasPerm("social_media.manage_social_media_vault");
+  const canGameservers = hasPerm("gameservers.manage_gameservers");
 
   const items: AdminNavItem[] = [];
 
-  if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings || canApplications || canDiscordBot || canSocialMediaVault) {
+  if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings || canApplications || canDiscordBot || canSocialMediaVault || canGameservers) {
     items.push({ key: "dashboard", href: "/admin", label: "Dashboard" });
   }
   const pendingUsersCount = opts?.pendingUsersCount;
@@ -75,6 +76,14 @@ export function getAdminNavItems(
   }
   if (isAdmin || canSocialMediaVault) {
     items.push({ key: "social-media", href: "/admin/social-media", label: "Social Media" });
+  }
+  if (isAdmin || canGameservers) {
+    // Teammanagers don't get this automatically yet - the shared VPS power
+    // switch affects every team at once, unlike Praccs (a later phase,
+    // scoped per-team like Applications/Teams). An admin can still grant
+    // gameservers.manage_gameservers to a specific Teammanager via the
+    // existing roles UI if desired.
+    items.push({ key: "gameservers", href: "/admin/gameservers", label: "Gameserver" });
   }
   if (isAdmin) {
     items.push({ key: "audit-log", href: "/admin/audit-log", label: "Audit-Log" });

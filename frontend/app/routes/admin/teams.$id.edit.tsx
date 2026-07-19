@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ClientActionFunction, ClientLoaderFunction } from "react-router";
 import { Form, useActionData, useLoaderData, useNavigation, redirect } from "react-router";
 import { authFetch, isLoggedIn, hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "~/lib/auth";
@@ -100,22 +101,27 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
     }
 
     if (intent === "addPlayer") {
-      const username = formData.get("username");
+      const memberType = formData.get("member_type");
       const ingameName = formData.get("ingame_name");
       const role = formData.get("role");
 
-      if (typeof username !== "string" || !username.trim()) {
-        return { errors: { username: "Benutzername erforderlich." } };
-      }
       if (typeof ingameName !== "string" || !ingameName.trim()) {
         return { errors: { ingame_name: "Ingame-Name erforderlich." } };
       }
 
-      const userResponse = await fetch(`${API_BASE_URL}/users/${username.trim()}/`);
-      if (!userResponse.ok) {
-        return { errors: { username: "Nutzer nicht gefunden." } };
+      let userId: number | null = null;
+      if (memberType !== "guest") {
+        const username = formData.get("username");
+        if (typeof username !== "string" || !username.trim()) {
+          return { errors: { username: "Benutzername erforderlich." } };
+        }
+        const userResponse = await fetch(`${API_BASE_URL}/users/${username.trim()}/`);
+        if (!userResponse.ok) {
+          return { errors: { username: "Nutzer nicht gefunden." } };
+        }
+        const user = await userResponse.json();
+        userId = user.id;
       }
-      const user = await userResponse.json();
 
       const response = await authFetch("/admin/players/", {
         method: "POST",
@@ -124,7 +130,7 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
           team_id: Number(params.id),
           ingame_name: ingameName,
           role: role || null,
-          user_id: user.id,
+          user_id: userId,
         }),
       });
       const data = await response.json();
@@ -158,6 +164,7 @@ export default function AdminTeamEditPage() {
     | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
+  const [memberType, setMemberType] = useState<"registered" | "guest">("registered");
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans py-12">
@@ -252,11 +259,37 @@ export default function AdminTeamEditPage() {
           <h3 className="text-lg font-bold text-white mb-4">Spieler hinzufügen</h3>
           <Form method="post" className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
             <input type="hidden" name="_intent" value="addPlayer" />
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-1">Benutzername <span className="text-red-500">*</span></label>
-              <input type="text" id="username" name="username" required className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
-              {actionData?.errors?.username && <p className="mt-1 text-sm text-red-500">{actionData.errors.username}</p>}
+            <div className="md:col-span-3 flex gap-6">
+              <label className="flex items-center gap-1.5 text-sm text-gray-300">
+                <input
+                  type="radio"
+                  name="member_type"
+                  value="registered"
+                  checked={memberType === "registered"}
+                  onChange={() => setMemberType("registered")}
+                  className="text-red-600 focus:ring-red-500"
+                />
+                Registrierter User
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-gray-300">
+                <input
+                  type="radio"
+                  name="member_type"
+                  value="guest"
+                  checked={memberType === "guest"}
+                  onChange={() => setMemberType("guest")}
+                  className="text-red-600 focus:ring-red-500"
+                />
+                Gast (kein Konto)
+              </label>
             </div>
+            {memberType === "registered" && (
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-1">Benutzername <span className="text-red-500">*</span></label>
+                <input type="text" id="username" name="username" required className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
+                {actionData?.errors?.username && <p className="mt-1 text-sm text-red-500">{actionData.errors.username}</p>}
+              </div>
+            )}
             <div>
               <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300 mb-1">Ingame-Name <span className="text-red-500">*</span></label>
               <input type="text" id="ingame_name" name="ingame_name" required className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />

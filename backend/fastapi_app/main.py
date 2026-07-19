@@ -40,6 +40,9 @@ from discord_bot import redis_bridge as discord_redis_bridge
 from discord_bot.listener import start_listener as start_discord_listener, stop_listener as stop_discord_listener
 from discord_bot.scheduler import start_scheduler as start_discord_config_scheduler, stop_scheduler as stop_discord_config_scheduler
 from social_media.models import SocialMediaVaultSettings
+from gameservers.models import HetznerVPS
+from gameservers import redis_bridge as gameserver_redis_bridge
+from gameservers.listener import start_listener as start_gameserver_listener, stop_listener as stop_gameserver_listener
 from faceit_integration import sync as faceit_sync
 from faceit_integration.client import FaceitClient, FaceitAPIError
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
@@ -185,12 +188,14 @@ async def lifespan(app: FastAPI):
     start_twitch_live_scheduler()
     start_discord_listener()
     start_discord_config_scheduler()
+    start_gameserver_listener()
     yield
     stop_scheduler()
     stop_social_stats_scheduler()
     stop_twitch_live_scheduler()
     stop_discord_listener()
     stop_discord_config_scheduler()
+    stop_gameserver_listener()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -643,7 +648,7 @@ class PlayerCreate(BaseModel):
     ingame_name: str
     role: Optional[str] = None
     description: Optional[str] = None
-    user_id: int  # Player.user is required (one player profile per user account)
+    user_id: Optional[int] = None  # None = guest roster member with no registered account
 
 class PlayerUpdate(BaseModel):
     ingame_name: Optional[str] = None
@@ -2459,20 +2464,33 @@ async def create_player(payload: PlayerCreate, current_user: CustomUser = Depend
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team not found")
     await ensure_team_access(current_user, team)
 
-    try:
-        user = await sync_to_async(CustomUser.objects.get)(id=payload.user_id)
-    except CustomUser.DoesNotExist:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
-    if await sync_to_async(Player.objects.filter(user=user).exists)():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This user already has a player profile")
+    user = None
+    if payload.user_id is not None:
+        try:
+            user = await sync_to_async(CustomUser.objects.get)(id=payload.user_id)
+        except CustomUser.DoesNotExist:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
+        if await sync_to_async(Player.objects.filter(user=user).exists)():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This user already has a player profile")
 
-    player = await sync_to_async(Player.objects.create)(
-        team=team,
-        user=user,
-        ingame_name=payload.ingame_name,
-        role=payload.role,
-        description=payload.description,
-    )
+    def _create():
+        player = Player.objects.create(
+            team=team,
+            user=user,
+            ingame_name=payload.ingame_name,
+            role=payload.role,
+            description=payload.description,
+        )
+        if user is not None:
+            # Being on the roster is what grants this user Teammanager-style
+            # access to the team (see ensure_team_access) - keeps
+            # CustomUser.team in sync instead of requiring the separate,
+            # today-unreachable-in-production Django-admin field.
+            user.team = team
+            user.save(update_fields=['team'])
+        return player
+
+    player = await sync_to_async(_create)()
     await sync_to_async(_log_action)(current_user, "create", "Player", player.id, player.ingame_name, {"team_id": team.id})
     return await build_player_schema(player)
 
@@ -2524,14 +2542,24 @@ async def update_player(
         setattr(player, field, value)
 
     update_fields = list(data.keys())
-    await sync_to_async(player.save)()
+
+    def _save():
+        player.save()
+        # Keep the linked user's team-scoped access in sync with the roster,
+        # same as create_player - covers both a team reassignment and a
+        # user re-link landing on this player row.
+        if player.user is not None and player.user.team_id != player.team_id:
+            player.user.team = player.team
+            player.user.save(update_fields=['team'])
+
+    await sync_to_async(_save)()
     await sync_to_async(_log_action)(current_user, "update", "Player", player.id, player.ingame_name, {"fields": update_fields})
     return await build_player_schema(player)
 
 @app.delete("/admin/players/{player_id}/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_player(player_id: int, current_user: CustomUser = Depends(require_team_management_access)):
     try:
-        player = await sync_to_async(Player.objects.select_related('team').get)(id=player_id)
+        player = await sync_to_async(Player.objects.select_related('user', 'team').get)(id=player_id)
     except Player.DoesNotExist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
     if player.team is not None:
@@ -2539,7 +2567,18 @@ async def delete_player(player_id: int, current_user: CustomUser = Depends(requi
     elif not current_user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform this action")
     player_name = player.ingame_name
-    await sync_to_async(player.delete)()
+
+    def _delete():
+        # Removing someone from the roster should also remove the
+        # Teammanager-style access that came from being on it - but only if
+        # it still points at this same team (don't clobber a reassignment
+        # that happened separately in the meantime).
+        if player.user is not None and player.user.team_id == player.team_id:
+            player.user.team = None
+            player.user.save(update_fields=['team'])
+        player.delete()
+
+    await sync_to_async(_delete)()
     await sync_to_async(_log_action)(current_user, "delete", "Player", player_id, player_name)
 
 @app.post("/admin/players/{player_id}/image/", response_model=PlayerSchema)
@@ -3077,6 +3116,86 @@ async def update_social_media_vault_url(
     await sync_to_async(_log_action)(current_admin, "update", "SocialMediaVaultSettings", settings_obj.id, "vault_url")
     return SocialMediaVaultSchema(vault_url=settings_obj.vault_url or None)
 
+# --- CS2 gameserver dashboard (Phase 1: Hetzner VPS power control only) ---
+# PunishersGer never calls Hetzner/SSH/RCON directly - see
+# gameservers/redis_bridge.py's module docstring. These endpoints just
+# validate, cache to the DB, and publish a command for the separate
+# gameserver-plattform repo to actually carry out.
+
+class HetznerVPSSchema(BaseModel):
+    id: int
+    hetzner_server_id: str
+    name: str
+    ip_address: Optional[str] = None
+    last_known_status: str
+    last_synced_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class HetznerVPSCreate(BaseModel):
+    hetzner_server_id: str
+    name: str
+    ip_address: Optional[str] = None
+
+class VPSPowerUpdate(BaseModel):
+    power_on: bool
+
+def build_hetzner_vps_schema(vps: HetznerVPS) -> HetznerVPSSchema:
+    return HetznerVPSSchema(
+        id=vps.id,
+        hetzner_server_id=vps.hetzner_server_id,
+        name=vps.name,
+        ip_address=vps.ip_address,
+        last_known_status=vps.last_known_status,
+        last_synced_at=vps.last_synced_at.isoformat() if vps.last_synced_at else None,
+    )
+
+@app.get("/admin/gameservers/vps/", response_model=Optional[HetznerVPSSchema])
+async def get_hetzner_vps(current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers"))):
+    vps = await sync_to_async(HetznerVPS.objects.first)()
+    return build_hetzner_vps_schema(vps) if vps else None
+
+@app.post("/admin/gameservers/vps/", response_model=HetznerVPSSchema, status_code=status.HTTP_201_CREATED)
+async def create_hetzner_vps(
+    payload: HetznerVPSCreate,
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    if await sync_to_async(HetznerVPS.objects.exists)():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Es ist bereits ein VPS konfiguriert.")
+    vps = await sync_to_async(HetznerVPS.objects.create)(
+        hetzner_server_id=payload.hetzner_server_id.strip(),
+        name=payload.name.strip(),
+        ip_address=payload.ip_address or None,
+    )
+    await sync_to_async(_log_action)(current_user, "create", "HetznerVPS", vps.id, vps.name)
+    return build_hetzner_vps_schema(vps)
+
+@app.put("/admin/gameservers/vps/power/", response_model=HetznerVPSSchema)
+async def set_hetzner_vps_power(
+    payload: VPSPowerUpdate,
+    current_user: CustomUser = Depends(require_permission("gameservers.manage_gameservers")),
+):
+    vps = await sync_to_async(HetznerVPS.objects.first)()
+    if vps is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kein VPS konfiguriert.")
+
+    published = await sync_to_async(gameserver_redis_bridge.publish_vps_power)(payload.power_on)
+    if not published:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Befehl konnte nicht an den Gameserver-Dienst gesendet werden.")
+
+    def _mark_pending():
+        # Optimistic UI feedback - the gameserver-plattform side reports the
+        # authoritative status back via VPS_STATUS_CHANGED once the Hetzner
+        # action actually completes (see gameservers/listener.py).
+        vps.last_known_status = "starting" if payload.power_on else "stopping"
+        vps.save(update_fields=['last_known_status'])
+        return vps
+
+    vps = await sync_to_async(_mark_pending)()
+    await sync_to_async(_log_action)(current_user, "update", "HetznerVPS", vps.id, vps.name, {"power_on": payload.power_on})
+    return build_hetzner_vps_schema(vps)
+
 # Curated subset of the auto-generated Django permissions that actually
 # correspond to a manageable resource in this app (as opposed to every
 # add/change/delete/view permission Django creates per model, which would be
@@ -3090,6 +3209,7 @@ MANAGEABLE_PERMISSIONS: List[tuple[str, str, str]] = [
     ("applications", "manage_applications", "Bewerbungen einsehen & bearbeiten (alle Spiele)"),
     ("discord_bot", "manage_discord_bot", "Discord-Bot verwalten"),
     ("social_media", "manage_social_media_vault", "Social-Media-Zugangsdaten verwalten (Vaultwarden)"),
+    ("gameservers", "manage_gameservers", "CS2-Gameserver verwalten"),
 ]
 
 def _build_role_schema(group: Group) -> RoleSchema:
