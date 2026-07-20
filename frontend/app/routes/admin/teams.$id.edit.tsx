@@ -6,6 +6,7 @@ import { API_BASE_URL } from "~/lib/config";
 import { extractErrorMessage } from "~/lib/errors";
 import { imageFallback } from "~/lib/sampleAssets";
 import AdminNav from "~/components/AdminNav";
+import ImageCropInput from "~/components/ImageCropInput";
 
 interface Player {
   id: number;
@@ -187,7 +188,14 @@ export default function AdminTeamEditPage() {
             />
             <Form method="post" encType="multipart/form-data" className="space-y-4 flex-grow">
               <input type="hidden" name="_intent" value="imageUpload" />
-              <input type="file" name="image" accept="image/*" className="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-600 file:text-white hover:file:bg-red-700" />
+              <ImageCropInput
+                id="team_image"
+                name="image"
+                aspect={3 / 2}
+                outputWidth={900}
+                outputHeight={600}
+                className="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-600 file:text-white hover:file:bg-red-700"
+              />
               <button type="submit" disabled={isSubmitting} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700">
                 Bild hochladen
               </button>

@@ -6,6 +6,7 @@ import { authFetch, isLoggedIn, clearTokens, hasRole, ROLE_TEAM_MANAGER, type Au
 import { extractErrorMessage } from "~/lib/errors";
 import { getAdminNavItems } from "~/lib/adminNav";
 import { imageFallback } from "~/lib/sampleAssets";
+import ImageCropInput from "~/components/ImageCropInput";
 import { TrendBadge, ViewerStatsBadge } from "~/components/TrendBadge";
 import { SocialMetricsCard } from "~/components/SocialMetricsCard";
 import { translate, getLanguageFromCookieHeader } from "~/i18n/config";
@@ -264,9 +265,8 @@ export default function ProfilePage() {
     );
   }
 
-  const handleProfilePictureChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      const file = event.target.files[0];
+  const handleProfilePictureCropped = (file: File | null) => {
+    if (file) {
       setProfilePicturePreview(URL.createObjectURL(file));
     }
   };
@@ -376,12 +376,13 @@ export default function ProfilePage() {
                   <input type="hidden" name="_formType" value="profilePictureUpload" />
                   <div>
                     <label htmlFor="profile_picture" className="block text-sm font-medium text-gray-300 mb-2">{t("picture.upload_label")}</label>
-                    <input
+                    <ImageCropInput
                       id="profile_picture"
                       name="profile_picture"
-                      type="file"
-                      accept="image/*"
-                      onChange={handleProfilePictureChange}
+                      aspect={1}
+                      outputWidth={512}
+                      outputHeight={512}
+                      onCropped={handleProfilePictureCropped}
                       className="block w-full text-sm text-gray-300
                         file:mr-4 file:py-2 file:px-4
                         file:rounded-full file:border-0

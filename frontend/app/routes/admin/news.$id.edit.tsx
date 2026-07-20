@@ -6,6 +6,7 @@ import { extractErrorMessage } from "~/lib/errors";
 import { imageFallback } from "~/lib/sampleAssets";
 import AdminNav from "~/components/AdminNav";
 import MarkdownToolbar from "~/components/MarkdownToolbar";
+import ImageCropInput from "~/components/ImageCropInput";
 
 interface NewsArticle {
   id: number;
@@ -148,10 +149,12 @@ export default function AdminNewsEditPage() {
             />
             <Form method="post" encType="multipart/form-data" className="space-y-4 flex-grow">
               <input type="hidden" name="_formType" value="imageUpload" />
-              <input
-                type="file"
+              <ImageCropInput
+                id="news_image"
                 name="image"
-                accept="image/*"
+                aspect={3 / 2}
+                outputWidth={900}
+                outputHeight={600}
                 className="block w-full text-sm text-gray-300
                   file:mr-4 file:py-2 file:px-4
                   file:rounded-full file:border-0

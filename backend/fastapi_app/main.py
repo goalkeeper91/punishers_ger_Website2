@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
+import io
 import re
 import secrets
 
 import logging
 
 import jwt
+from PIL import Image
 from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -74,6 +76,36 @@ def build_media_url(file_field) -> Optional[str]:
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+# Safety net, not the primary fix: the frontend now forces every upload
+# through a crop step (see ImageCropInput.tsx) that already exports a
+# normalized, reasonably-sized JPEG - this just guards against someone
+# bypassing the frontend entirely (a direct API call, an old cached page)
+# and posting an oversized image straight through. GIF is deliberately
+# excluded - re-encoding via Pillow would collapse an animated GIF to a
+# single static frame.
+MAX_IMAGE_DIMENSION_PX = 2000
+IMAGE_SAVE_FORMAT_BY_EXTENSION = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}
+
+def _validate_and_resize_image(data: bytes, extension: str) -> bytes:
+    try:
+        with Image.open(io.BytesIO(data)) as probe:
+            probe.verify()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Datei ist kein gültiges Bild.") from exc
+
+    if extension == ".gif":
+        return data
+
+    with Image.open(io.BytesIO(data)) as img:
+        if img.width <= MAX_IMAGE_DIMENSION_PX and img.height <= MAX_IMAGE_DIMENSION_PX:
+            return data
+        img.thumbnail((MAX_IMAGE_DIMENSION_PX, MAX_IMAGE_DIMENSION_PX), Image.LANCZOS)
+        save_format = IMAGE_SAVE_FORMAT_BY_EXTENSION[extension]
+        if save_format == "JPEG" and img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        buffer = io.BytesIO()
+        img.save(buffer, format=save_format)
+        return buffer.getvalue()
 
 async def save_uploaded_image(file: UploadFile, directory: str, filename_base: str) -> str:
     """Validates and writes an uploaded image, returning the file name to
@@ -101,6 +133,7 @@ async def save_uploaded_image(file: UploadFile, directory: str, filename_base: s
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Datei zu groß (max. {MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)} MB).",
         )
+    content = await sync_to_async(_validate_and_resize_image)(content, extension)
 
     await sync_to_async(os.makedirs)(directory, exist_ok=True)
     file_name = f"{filename_base}{extension}"
