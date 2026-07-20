@@ -1,5 +1,5 @@
 import type { ClientActionFunction, LoaderFunction } from "react-router";
-import { Form, useActionData, redirect } from "react-router"; // Import Form and useActionData
+import { Form, useActionData, useSearchParams, redirect } from "react-router"; // Import Form and useActionData
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { extractErrorMessage } from "~/lib/errors";
@@ -86,6 +86,12 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
 export default function RegisterPage() {
   const actionData = useActionData() as { errors?: { [key: string]: string } } | undefined;
   const { t } = useTranslation("auth");
+  // Pre-fills from a "Bewerbung angenommen" email link (see
+  // applications/emails.py's send_application_accepted_email) so whoever
+  // reviews the resulting pending account can match it back to the
+  // application by email, instead of the applicant typing a different one.
+  const [searchParams] = useSearchParams();
+  const prefilledEmail = searchParams.get("email") ?? undefined;
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
@@ -122,6 +128,7 @@ export default function RegisterPage() {
                 name="email"
                 type="email"
                 autoComplete="email"
+                defaultValue={prefilledEmail}
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-500 text-white bg-gray-700 focus:outline-none focus:ring-red-500 focus:border-red-500 focus:z-10 sm:text-sm"
                 placeholder={t("register.email_placeholder") ?? undefined}

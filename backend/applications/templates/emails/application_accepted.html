@@ -1,0 +1,14 @@
+{% extends "emails/base_email.html" %}
+{% block title %}Deine Bewerbung wurde angenommen{% endblock %}
+{% block content %}
+<p style="margin:0 0 16px; color:#ffffff; font-size:18px; font-weight:700;">Glückwunsch!</p>
+<p style="margin:0 0 20px;">Deine Bewerbung als <strong>{{ ingame_name }}</strong> für <strong>{{ game }}</strong> bei Punishers Germany wurde angenommen.</p>
+<p style="margin:0 0 20px;">Um loszulegen, registriere dich mit dieser E-Mail-Adresse auf unserer Seite. Ein Admin schaltet dein Konto danach frei.</p>
+<table role="presentation" cellpadding="0" cellspacing="0">
+  <tr>
+    <td style="border-radius:6px; background-color:#dc2626;">
+      <a href="{{ register_url }}" style="display:inline-block; padding:12px 28px; color:#ffffff; font-weight:600; text-decoration:none; font-size:14px;">Jetzt registrieren</a>
+    </td>
+  </tr>
+</table>
+{% endblock %}

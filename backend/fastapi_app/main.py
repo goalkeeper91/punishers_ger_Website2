@@ -32,6 +32,7 @@ from users.emails import send_account_activated_email, send_password_reset_email
 from sponsors.models import Sponsor, SocialLink
 from site_settings.models import SiteSettings, PageBackground
 from applications.models import PlayerApplication
+from applications.emails import send_application_accepted_email
 from discord_bot.models import (
     DiscordGuild,
     AnnouncementChannelMapping,
@@ -2906,6 +2907,7 @@ async def get_pending_applications_count(current_user: CustomUser = Depends(get_
 async def update_player_application_status(
     application_id: int,
     payload: PlayerApplicationStatusUpdate,
+    background_tasks: BackgroundTasks,
     current_user: CustomUser = Depends(get_current_user),
 ):
     game_scope = await _resolve_application_game_scope(current_user)
@@ -2918,6 +2920,11 @@ async def update_player_application_status(
     if payload.status not in APPLICATION_STATUS_CHOICES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiger Status")
 
+    # Only fires on the transition INTO "accepted", not on every re-save of
+    # an already-accepted application (e.g. a Teammanager re-opening and
+    # re-confirming it later shouldn't spam the applicant a second time).
+    just_accepted = payload.status == "accepted" and application.status != "accepted"
+
     application.status = payload.status
     application.reviewed_by = current_user
     application.reviewed_at = datetime.now(timezone.utc)
@@ -2925,6 +2932,8 @@ async def update_player_application_status(
     await sync_to_async(_log_action)(
         current_user, "update", "PlayerApplication", application.id, application.ingame_name, {"status": payload.status}
     )
+    if just_accepted:
+        background_tasks.add_task(send_application_accepted_email, application)
     return build_application_schema(application)
 
 @app.delete("/admin/applications/players/{application_id}/", status_code=status.HTTP_204_NO_CONTENT)

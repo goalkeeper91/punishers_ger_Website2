@@ -1,0 +1,10 @@
+Glückwunsch!
+
+Deine Bewerbung als {{ ingame_name }} für {{ game }} bei Punishers Germany wurde angenommen.
+
+Um loszulegen, registriere dich mit dieser E-Mail-Adresse auf unserer Seite. Ein Admin schaltet dein Konto danach frei:
+
+{{ register_url }}
+
+--
+Diese E-Mail wurde automatisch von Punishers Germany verschickt.
