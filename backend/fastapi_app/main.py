@@ -337,6 +337,7 @@ class PlayerSchema(BaseModel):
     image_url: Optional[str] = None
     team_id: Optional[int] = None
     faceit_player_id: Optional[str] = None
+    show_extended_profile: bool = False
     user: Optional[CustomUserSchema] = None
     created_at: str
     updated_at: str
@@ -385,12 +386,36 @@ class PublicPlayerSchema(BaseModel):
     description: Optional[str] = None
     image_url: Optional[str] = None
     team_id: Optional[int] = None
+    show_extended_profile: bool = False
     user: Optional[PublicUserSchema] = None
     created_at: str
     updated_at: str
 
     class Config:
         from_attributes = True
+
+# Standalone public profile (GET /players/{id}/, linked from team roster
+# cards) - a flattened view rather than nesting PublicUserSchema, so the
+# always-public fields (image/ingame_name/role/team) don't depend on a
+# linked account existing at all (guest roster members have none) and the
+# fallback-to-account-picture logic lives here once instead of per-caller.
+class PublicPlayerProfileSchema(BaseModel):
+    id: int
+    ingame_name: str
+    role: Optional[str] = None
+    image_url: Optional[str] = None
+    team_id: Optional[int] = None
+    team_name: Optional[str] = None
+    team_game: Optional[str] = None
+    show_extended_profile: bool
+    description: Optional[str] = None
+    username: Optional[str] = None
+    game_profile_link: Optional[str] = None
+    twitter_link: Optional[str] = None
+    twitch_link: Optional[str] = None
+    youtube_link: Optional[str] = None
+    instagram_link: Optional[str] = None
+    tiktok_link: Optional[str] = None
 
 class PublicTeamSchema(BaseModel):
     id: int
@@ -703,6 +728,7 @@ class PlayerUpdate(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
     faceit_player_id: Optional[str] = None
+    show_extended_profile: Optional[bool] = None
 
 # Self-service versions of the two above, deliberately without team_id -
 # team assignment stays exclusively an admin/Team-Manager action via the
@@ -710,10 +736,18 @@ class PlayerUpdate(BaseModel):
 class PlayerSelfCreate(BaseModel):
     ingame_name: str
     faceit_player_id: Optional[str] = None
+    description: Optional[str] = None
+    show_extended_profile: Optional[bool] = None
 
 class PlayerSelfUpdate(BaseModel):
     ingame_name: Optional[str] = None
     faceit_player_id: Optional[str] = None
+    # A player's own bio + the opt-in flag that reveals it (and their linked
+    # account's social links) on the public /players/{id}/ profile - see
+    # build_public_player_schema. Image/ingame_name/role/team stay public
+    # regardless of this flag.
+    description: Optional[str] = None
+    show_extended_profile: Optional[bool] = None
 
 class FaceitPlayerLookupSchema(BaseModel):
     player_id: str
@@ -1228,6 +1262,8 @@ async def create_my_player(payload: PlayerSelfCreate, background_tasks: Backgrou
         user=current_user,
         ingame_name=payload.ingame_name,
         faceit_player_id=payload.faceit_player_id or None,
+        description=payload.description or None,
+        show_extended_profile=payload.show_extended_profile or False,
     )
     await sync_to_async(_log_action)(current_user, "create", "Player", player.id, player.ingame_name, {"self_service": True})
     if player.faceit_player_id:
@@ -2192,6 +2228,7 @@ async def build_player_schema(player: Player) -> PlayerSchema:
         image_url=build_media_url(player.image),
         team_id=team_id,
         faceit_player_id=player.faceit_player_id,
+        show_extended_profile=player.show_extended_profile,
         user=player_user,
         created_at=player.created_at.isoformat(),
         updated_at=player.updated_at.isoformat(),
@@ -2226,18 +2263,47 @@ async def build_public_user_schema(user: CustomUser) -> PublicUserSchema:
     )
 
 async def build_public_player_schema(player: Player) -> PublicPlayerSchema:
-    player_user = await build_public_user_schema(player.user) if player.user else None
+    extended = player.show_extended_profile
+    player_user = await build_public_user_schema(player.user) if (extended and player.user) else None
     team_id = await sync_to_async(lambda: player.team.id if player.team else None)()
+    image_url = build_media_url(player.image) or (build_media_url(player.user.profile_picture) if player.user else None)
     return PublicPlayerSchema(
         id=player.id,
         ingame_name=player.ingame_name,
         role=player.role,
-        description=player.description,
-        image_url=build_media_url(player.image),
+        description=player.description if extended else None,
+        image_url=image_url,
         team_id=team_id,
+        show_extended_profile=extended,
         user=player_user,
         created_at=player.created_at.isoformat(),
         updated_at=player.updated_at.isoformat(),
+    )
+
+async def build_public_player_profile_schema(player: Player) -> PublicPlayerProfileSchema:
+    extended = player.show_extended_profile
+    team_name, team_game = await sync_to_async(
+        lambda: (player.team.name, player.team.game) if player.team else (None, None)
+    )()
+    image_url = build_media_url(player.image) or (build_media_url(player.user.profile_picture) if player.user else None)
+    user = player.user if (extended and player.user) else None
+    return PublicPlayerProfileSchema(
+        id=player.id,
+        ingame_name=player.ingame_name,
+        role=player.role,
+        image_url=image_url,
+        team_id=player.team_id,
+        team_name=team_name,
+        team_game=team_game,
+        show_extended_profile=extended,
+        description=player.description if extended else None,
+        username=user.username if user else None,
+        game_profile_link=user.game_profile_link if user else None,
+        twitter_link=user.twitter_link if user else None,
+        twitch_link=user.twitch_link if user else None,
+        youtube_link=user.youtube_link if user else None,
+        instagram_link=user.instagram_link if user else None,
+        tiktok_link=user.tiktok_link if user else None,
     )
 
 async def build_public_team_schema(team: Team) -> PublicTeamSchema:
@@ -2268,6 +2334,14 @@ async def get_team_by_id(team_id: int):
         raise HTTPException(status_code=404, detail="Team not found")
 
     return await build_public_team_schema(team)
+
+@app.get("/players/{player_id}/", response_model=PublicPlayerProfileSchema)
+async def get_public_player_profile(player_id: int):
+    try:
+        player = await sync_to_async(Player.objects.select_related('user', 'team').get)(id=player_id)
+    except Player.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return await build_public_player_profile_schema(player)
 
 # --- Public match highlights (for the homepage widget) ---
 

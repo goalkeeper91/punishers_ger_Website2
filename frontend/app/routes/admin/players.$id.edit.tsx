@@ -13,6 +13,7 @@ interface Player {
   description: string | null;
   image_url: string | null;
   team_id: number | null;
+  show_extended_profile: boolean;
   user: { username: string } | null;
 }
 
@@ -74,6 +75,7 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
           ingame_name: formData.get("ingame_name"),
           role: formData.get("role") || null,
           description: formData.get("description") || null,
+          show_extended_profile: formData.get("show_extended_profile") === "on",
         }),
       });
       const data = await response.json();
@@ -134,7 +136,12 @@ export default function AdminPlayerEditPage() {
         </div>
 
         <div className="bg-gray-800 p-8 rounded-lg shadow-xl">
-          <h2 className="text-2xl font-bold text-white mb-2">Spielerdetails</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+            <h2 className="text-2xl font-bold text-white">Spielerdetails</h2>
+            <a href={`/players/${player.id}`} className="text-sm text-red-500 hover:text-red-400 font-semibold">
+              Öffentliches Profil ansehen
+            </a>
+          </div>
           <p className="text-gray-500 text-sm mb-6">Verknüpftes Konto: {player.user ? `@${player.user.username}` : "keins"}</p>
           <Form method="post" className="space-y-6">
             <input type="hidden" name="_formType" value="update" />
@@ -149,6 +156,21 @@ export default function AdminPlayerEditPage() {
             <div>
               <label htmlFor="description" className="block text-sm font-medium text-gray-300">Beschreibung</label>
               <textarea id="description" name="description" rows={4} defaultValue={player.description || ""} className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
+            </div>
+            <div className="border-t border-gray-700 pt-6">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="show_extended_profile"
+                  name="show_extended_profile"
+                  defaultChecked={player.show_extended_profile}
+                  className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-red-600 focus:ring-red-500"
+                />
+                <label htmlFor="show_extended_profile" className="text-sm text-gray-300">Bio und Social-Links auf dem öffentlichen Profil anzeigen</label>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Bild, Ingame-Name, Rolle und Team sind immer öffentlich sichtbar. Diese Einstellung steuert nur die Beschreibung und - falls ein Konto verknüpft ist - dessen Social-Links.
+              </p>
             </div>
             <button type="submit" disabled={isSubmitting} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700">
               Speichern

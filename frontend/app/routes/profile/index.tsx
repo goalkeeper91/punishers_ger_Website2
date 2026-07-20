@@ -45,6 +45,8 @@ interface PlayerProfile {
   id: number;
   ingame_name: string;
   faceit_player_id: string | null;
+  description: string | null;
+  show_extended_profile: boolean;
 }
 
 // Result of GET /players/faceit-lookup/?nickname=... - resolves a FACEIT
@@ -157,13 +159,21 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       return { lookupResult };
 
     } else if (formType === "playerProfileUpdate") {
-      const ingame_name = String(formData.get("ingame_name") || "");
       const faceit_player_id = formData.get("faceit_player_id");
-      const payload = {
-        ingame_name,
-        faceit_player_id: faceit_player_id === "" ? null : faceit_player_id,
-      };
+      const description = formData.get("description");
       const hasExistingPlayer = formData.get("_hasExistingPlayer") === "true";
+      const payload: Record<string, unknown> = {
+        faceit_player_id: faceit_player_id === "" ? null : faceit_player_id,
+        description: description === "" ? null : description,
+        show_extended_profile: formData.get("show_extended_profile") === "on",
+      };
+      // ingame_name only defaults to the account username on first creation -
+      // once a player has a profile, later saves here (e.g. just toggling
+      // visibility or editing the bio) must never silently overwrite a
+      // display name someone may have deliberately customized since.
+      if (!hasExistingPlayer) {
+        payload.ingame_name = String(formData.get("ingame_name") || "");
+      }
 
       const response = await authFetch(`/players/me/`, {
         method: hasExistingPlayer ? "PUT" : "POST",
@@ -467,9 +477,11 @@ export default function ProfilePage() {
                     type="url"
                     id="game_profile_link"
                     name="game_profile_link"
+                    placeholder={t("details.game_profile_link_placeholder")}
                     defaultValue={user.game_profile_link || ""}
                     className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
                   />
+                  <p className="mt-1 text-xs text-gray-500">{t("details.game_profile_link_hint")}</p>
                 </div>
                 <div>
                   <label htmlFor="twitter_link" className="block text-sm font-medium text-gray-300">{t("details.twitter_link_label")}</label>
@@ -538,71 +550,96 @@ export default function ProfilePage() {
               sie hier per Nickname-Suche (GET /players/faceit-lookup/)
               aufgelöst statt manuell eingegeben. */}
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
-            <h2 className="text-3xl font-bold text-white mb-2">{t("faceit.heading")}</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+              <h2 className="text-3xl font-bold text-white">{t("faceit.heading")}</h2>
+              {player && (
+                <a href={`/players/${player.id}`} className="text-sm text-red-500 hover:text-red-400 font-semibold">
+                  {t("faceit.view_public_profile")}
+                </a>
+              )}
+            </div>
             <p className="text-gray-400 text-sm mb-6">{t("faceit.description")}</p>
             <Form method="post" className="space-y-6">
               <input type="hidden" name="_hasExistingPlayer" value={player ? "true" : "false"} />
               <input type="hidden" name="faceit_player_id" value={resolvedFaceitId} />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label htmlFor="ingame_name" className="block text-sm font-medium text-gray-300">{t("faceit.ingame_name_label")} <span className="text-red-500">*</span></label>
+              {/* Kein eigenes Ingame-Name-Feld mehr - Benutzername und
+                  Ingame-Name sind für diese Seite dasselbe, der Benutzername
+                  wird 1:1 als Player.ingame_name übernommen. */}
+              <input type="hidden" id="ingame_name" name="ingame_name" value={user.username} />
+              <div>
+                <label htmlFor="faceit_nickname" className="block text-sm font-medium text-gray-300">{t("faceit.faceit_nickname_label")}</label>
+                <div className="mt-1 flex gap-2">
                   <input
                     type="text"
-                    id="ingame_name"
-                    name="ingame_name"
-                    required
-                    defaultValue={player?.ingame_name || ""}
+                    id="faceit_nickname"
+                    name="faceit_nickname"
+                    defaultValue={faceitLookupResult?.nickname || ""}
+                    className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                  />
+                  <button
+                    type="submit"
+                    name="_formType"
+                    value="faceitLookup"
+                    disabled={isSubmitting}
+                    className="flex-shrink-0 py-2 px-4 border border-gray-600 shadow-sm text-sm font-medium rounded-md text-white bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    {isSubmitting && navigation.formData?.get("_formType") === "faceitLookup" ? t("faceit.searching") : t("faceit.search")}
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">{t("faceit.faceit_nickname_hint")}</p>
+
+                {faceitLookupResult && (
+                  <div className="mt-3 flex items-center gap-3 bg-gray-900/50 rounded-md p-3">
+                    {faceitLookupResult.avatar && (
+                      <img src={faceitLookupResult.avatar} alt={faceitLookupResult.nickname} className="w-10 h-10 rounded-full object-cover" />
+                    )}
+                    <div>
+                      <p className="text-sm text-gray-400">{t("faceit.found_heading")}</p>
+                      <p className="text-white font-semibold">{faceitLookupResult.nickname}</p>
+                      {faceitLookupResult.skill_level != null && (
+                        <p className="text-xs text-gray-400">
+                          {t("faceit.found_level", { level: faceitLookupResult.skill_level, elo: faceitLookupResult.faceit_elo })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {!faceitLookupResult && player?.faceit_player_id && (
+                  <p className="mt-2 text-xs text-gray-500">{t("faceit.already_linked", { id: player.faceit_player_id })}</p>
+                )}
+              </div>
+
+              <div className="border-t border-gray-700 pt-6">
+                <h3 className="text-lg font-semibold text-white mb-1">{t("faceit.public_profile_heading")}</h3>
+                <p className="text-gray-400 text-sm mb-4">{t("faceit.public_profile_hint")}</p>
+                <div>
+                  <label htmlFor="description" className="block text-sm font-medium text-gray-300">{t("faceit.description_label")}</label>
+                  <textarea
+                    id="description"
+                    name="description"
+                    rows={4}
+                    defaultValue={player?.description || ""}
                     className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
                   />
                 </div>
-                <div>
-                  <label htmlFor="faceit_nickname" className="block text-sm font-medium text-gray-300">{t("faceit.faceit_nickname_label")}</label>
-                  <div className="mt-1 flex gap-2">
-                    <input
-                      type="text"
-                      id="faceit_nickname"
-                      name="faceit_nickname"
-                      defaultValue={faceitLookupResult?.nickname || ""}
-                      className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
-                    />
-                    <button
-                      type="submit"
-                      name="_formType"
-                      value="faceitLookup"
-                      disabled={isSubmitting}
-                      className="flex-shrink-0 py-2 px-4 border border-gray-600 shadow-sm text-sm font-medium rounded-md text-white bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                    >
-                      {isSubmitting && navigation.formData?.get("_formType") === "faceitLookup" ? t("faceit.searching") : t("faceit.search")}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">{t("faceit.faceit_nickname_hint")}</p>
-
-                  {faceitLookupResult && (
-                    <div className="mt-3 flex items-center gap-3 bg-gray-900/50 rounded-md p-3">
-                      {faceitLookupResult.avatar && (
-                        <img src={faceitLookupResult.avatar} alt={faceitLookupResult.nickname} className="w-10 h-10 rounded-full object-cover" />
-                      )}
-                      <div>
-                        <p className="text-sm text-gray-400">{t("faceit.found_heading")}</p>
-                        <p className="text-white font-semibold">{faceitLookupResult.nickname}</p>
-                        {faceitLookupResult.skill_level != null && (
-                          <p className="text-xs text-gray-400">
-                            {t("faceit.found_level", { level: faceitLookupResult.skill_level, elo: faceitLookupResult.faceit_elo })}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {!faceitLookupResult && player?.faceit_player_id && (
-                    <p className="mt-2 text-xs text-gray-500">{t("faceit.already_linked", { id: player.faceit_player_id })}</p>
-                  )}
+                <div className="flex items-center gap-2 mt-4">
+                  <input
+                    type="checkbox"
+                    id="show_extended_profile"
+                    name="show_extended_profile"
+                    defaultChecked={player?.show_extended_profile || false}
+                    className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-red-600 focus:ring-red-500"
+                  />
+                  <label htmlFor="show_extended_profile" className="text-sm text-gray-300">{t("faceit.show_extended_profile_label")}</label>
                 </div>
+                <p className="mt-1 text-xs text-gray-500">{t("faceit.show_extended_profile_hint")}</p>
               </div>
+
               <button
                 type="submit"
                 name="_formType"
                 value="playerProfileUpdate"
-                disabled={isSubmitting || !resolvedFaceitId}
+                disabled={isSubmitting}
                 className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting && navigation.formData?.get("_formType") === "playerProfileUpdate" ? t("faceit.saving") : t("faceit.save")}

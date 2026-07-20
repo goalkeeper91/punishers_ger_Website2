@@ -19,7 +19,10 @@ class CustomUser(AbstractUser):
     # Weitere eSport-spezifische IDs könnten hier hinzugefügt werden (z.B. Riot ID, Epic Games ID)
 
     # Spieler Profil Verknüpfungen
-    game_profile_link = models.URLField(max_length=200, blank=True, null=True, help_text="Link zum Spielerprofil im Spiel")
+    game_profile_link = models.URLField(
+        max_length=200, blank=True, null=True,
+        help_text="Link zu einer Stats-/Tracker-Seite fürs jeweilige Spiel, z.B. Steam-Community-Profil (CS2), tracker.gg (Valorant), op.gg (LoL) oder ballchasing.com (Rocket League).",
+    )
 
     # Social Media Präsentation
     twitter_link = models.URLField(max_length=200, blank=True, null=True)

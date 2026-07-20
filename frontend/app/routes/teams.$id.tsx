@@ -79,7 +79,11 @@ export default function TeamDetailPage() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
                 {team.players.map((player) => (
-                  <div key={player.id} className="bg-gray-800 rounded-lg shadow-xl p-6 flex flex-col items-center text-center transform hover:scale-105 transition-transform duration-300">
+                  <a
+                    key={player.id}
+                    href={`/players/${player.id}`}
+                    className="bg-gray-800 rounded-lg shadow-xl p-6 flex flex-col items-center text-center transform hover:scale-105 transition-transform duration-300"
+                  >
                     <img
                       src={
                         player.image_url ||
@@ -92,7 +96,7 @@ export default function TeamDetailPage() {
                     <h3 className="text-xl font-bold text-white">{player.ingame_name}</h3>
                     {player.role && <p className="text-red-500 text-sm font-semibold uppercase mt-1">{player.role}</p>}
                     {player.description && <p className="text-gray-400 text-sm mt-3">{player.description}</p>}
-                  </div>
+                  </a>
                 ))}
               </div>
             )}

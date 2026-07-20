@@ -38,6 +38,16 @@ class Player(models.Model):
         max_length=64, blank=True, null=True, unique=True,
         help_text="FACEIT Player ID (Data API v4), z.B. aus der FACEIT-Profil-URL ableitbar.",
     )
+    # Controls the public /players/{id}/ profile page (and the roster card on
+    # the public team page): image, ingame_name, role and team/game are
+    # always shown regardless of this flag - only the voluntary extras (bio
+    # + the linked account's social links) are gated behind it, defaulting
+    # to off so a fresh roster entry doesn't leak anything until the player
+    # (or their Teammanager, for guests) opts in.
+    show_extended_profile = models.BooleanField(
+        default=False,
+        help_text="Zeigt Bio und Social-Links auf dem öffentlichen Spielerprofil (sonst nur Bild, Name, Rolle, Team).",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

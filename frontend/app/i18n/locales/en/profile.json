@@ -27,7 +27,9 @@
     "first_name_label": "First Name",
     "last_name_label": "Last Name",
     "steam_id_label": "Steam ID",
-    "game_profile_link_label": "Game Profile Link",
+    "game_profile_link_label": "In-Game Profile Link (Steam, Tracker.gg, op.gg, etc.)",
+    "game_profile_link_placeholder": "https://steamcommunity.com/id/yourname",
+    "game_profile_link_hint": "Link to your profile on a stats/tracker site for your game - e.g. your Steam Community profile (CS2), tracker.gg (Valorant), op.gg (League of Legends), or ballchasing.com (Rocket League).",
     "twitter_link_label": "Twitter Link",
     "twitch_link_label": "Twitch Link",
     "youtube_link_label": "YouTube Link",
@@ -39,7 +41,6 @@
   "faceit": {
     "heading": "FACEIT Profile",
     "description": "Link your FACEIT ID to see your lifetime and per-match stats on the stats page - regardless of whether you're on a team.",
-    "ingame_name_label": "Ingame Name",
     "faceit_nickname_label": "FACEIT Nickname",
     "faceit_nickname_hint": "Your nickname on faceit.com, exactly as shown there.",
     "search": "Search",
@@ -48,7 +49,13 @@
     "found_level": "Level {{level}} · {{elo}} Elo",
     "already_linked": "Currently linked (FACEIT ID: {{id}}). Search again to change the link.",
     "saving": "Saving...",
-    "save": "Save FACEIT Profile"
+    "save": "Save FACEIT Profile",
+    "view_public_profile": "View public profile",
+    "public_profile_heading": "Public Profile",
+    "public_profile_hint": "Picture, name, role and team are always visible to visitors. Your bio and social links only show up if you enable that below.",
+    "description_label": "About Me",
+    "show_extended_profile_label": "Show bio and social links publicly",
+    "show_extended_profile_hint": "Off by default - your linked social media links are only shown publicly with this setting on."
   },
   "social": {
     "heading": "Social Media Connections",

@@ -27,7 +27,9 @@
     "first_name_label": "Vorname",
     "last_name_label": "Nachname",
     "steam_id_label": "Steam ID",
-    "game_profile_link_label": "Game Profil Link",
+    "game_profile_link_label": "Profil-Link im Spiel (Steam, Tracker.gg, op.gg o. Ä.)",
+    "game_profile_link_placeholder": "https://steamcommunity.com/id/deinname",
+    "game_profile_link_hint": "Link zu deinem Profil auf einer Stats-/Tracker-Seite für dein Spiel - z. B. Steam-Community-Profil (CS2), tracker.gg (Valorant), op.gg (League of Legends) oder ballchasing.com (Rocket League).",
     "twitter_link_label": "Twitter Link",
     "twitch_link_label": "Twitch Link",
     "youtube_link_label": "YouTube Link",
@@ -39,7 +41,6 @@
   "faceit": {
     "heading": "FACEIT-Profil",
     "description": "Verlinke deine FACEIT-ID, um deine Lifetime- und Match-Statistiken auf der Statistik-Seite zu sehen - unabhängig davon, ob du in einem Team bist.",
-    "ingame_name_label": "Ingame-Name",
     "faceit_nickname_label": "FACEIT-Nickname",
     "faceit_nickname_hint": "Dein Nickname auf faceit.com, genau wie er dort angezeigt wird.",
     "search": "Suchen",
@@ -48,7 +49,13 @@
     "found_level": "Level {{level}} · {{elo}} Elo",
     "already_linked": "Aktuell verknüpft (FACEIT-ID: {{id}}). Suche erneut, um die Verknüpfung zu ändern.",
     "saving": "Wird gespeichert...",
-    "save": "FACEIT-Profil speichern"
+    "save": "FACEIT-Profil speichern",
+    "view_public_profile": "Öffentliches Profil ansehen",
+    "public_profile_heading": "Öffentliches Profil",
+    "public_profile_hint": "Bild, Name, Rolle und Team sind für Besucher immer sichtbar. Bio und Social-Links zeigst du nur, wenn du das unten aktivierst.",
+    "description_label": "Über mich",
+    "show_extended_profile_label": "Bio und Social-Links öffentlich anzeigen",
+    "show_extended_profile_hint": "Standardmäßig deaktiviert - deine verknüpften Social-Media-Links werden nur mit dieser Einstellung öffentlich gezeigt."
   },
   "social": {
     "heading": "Social-Media-Verbindungen",

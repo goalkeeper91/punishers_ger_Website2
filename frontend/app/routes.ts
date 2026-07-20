@@ -6,6 +6,7 @@ export default [
   route("/news/:slug", "routes/news.$slug.tsx"),
   route("/teams", "routes/teams.tsx"),
   route("/teams/:id", "routes/teams.$id.tsx"),
+  route("/players/:id", "routes/players.$id.tsx"), // Public player profile - image/name/role/team always shown, bio + social links only if the player opted in
   route("/creators", "routes/creators.tsx"),
   route("/join-us", "routes/join-us.tsx"),
   route("/join-us/apply", "routes/join-us.apply.tsx"), // Player application form
