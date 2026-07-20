@@ -69,10 +69,22 @@ from django.utils.text import slugify
 logger = logging.getLogger(__name__)
 
 def build_media_url(file_field) -> Optional[str]:
-    """Return an absolute URL for a Django FileField/ImageField, or None if empty."""
+    """Return an absolute URL for a Django FileField/ImageField, or None if empty.
+
+    Uploads that replace an existing file (team/player/sponsor/news images,
+    page backgrounds, profile pictures, ...) reuse the same filename, so the
+    URL never changes even though the content did - browsers then keep
+    serving the old cached bytes for that URL. Appending the file's own
+    last-modified time as a cache-busting query param fixes this for every
+    caller at once, without needing a DB timestamp per model."""
     if not file_field:
         return None
-    return f"{settings.BACKEND_BASE_URL}{settings.MEDIA_URL}{file_field.name}"
+    url = f"{settings.BACKEND_BASE_URL}{settings.MEDIA_URL}{file_field.name}"
+    try:
+        mtime = int(os.path.getmtime(file_field.path))
+    except (OSError, ValueError):
+        return url
+    return f"{url}?v={mtime}"
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
