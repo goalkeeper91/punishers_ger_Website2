@@ -4,6 +4,7 @@ import { authFetch, isLoggedIn, type AuthUser } from "~/lib/auth";
 import { extractErrorMessage } from "~/lib/errors";
 import { API_BASE_URL } from "~/lib/config";
 import AdminNav from "~/components/AdminNav";
+import ImageCropInput from "~/components/ImageCropInput";
 
 const PAGE_KEYS = [
   { key: "news", label: "News" },
@@ -134,7 +135,7 @@ export default function AdminSiteSettingsPage() {
         {/* Per-page background images */}
         <div className="bg-gray-800 rounded-lg shadow-xl p-6">
           <h2 className="text-2xl font-bold text-white mb-2">Seiten-Hintergrundbilder</h2>
-          <p className="text-sm text-gray-400 mb-6">Ein eigenes Banner-Bild pro Unterseite. Erlaubt: .jpg, .jpeg, .png, .gif, .webp. Maximal 5 MB.</p>
+          <p className="text-sm text-gray-400 mb-6">Ein eigenes Banner-Bild pro Unterseite. Wird als breites Banner (1920×400) angezeigt - beim Hochladen kannst du den passenden Ausschnitt wählen. Erlaubt: .jpg, .jpeg, .png, .gif, .webp. Maximal 5 MB.</p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {PAGE_KEYS.map(({ key, label }) => {
@@ -152,10 +153,12 @@ export default function AdminSiteSettingsPage() {
                   <Form method="post" encType="multipart/form-data" className="flex items-center gap-2">
                     <input type="hidden" name="_intent" value="uploadPageBackground" />
                     <input type="hidden" name="page_key" value={key} />
-                    <input
-                      type="file"
+                    <ImageCropInput
+                      id={`page_background_${key}`}
                       name="image"
-                      accept="image/*"
+                      aspect={1920 / 400}
+                      outputWidth={1920}
+                      outputHeight={400}
                       className="text-xs text-gray-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-red-600 file:text-white"
                     />
                     <button type="submit" className="py-1 px-3 rounded-md text-white text-xs font-semibold bg-gray-600 hover:bg-gray-500 whitespace-nowrap">

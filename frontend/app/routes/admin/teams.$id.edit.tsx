@@ -6,7 +6,6 @@ import { API_BASE_URL } from "~/lib/config";
 import { extractErrorMessage } from "~/lib/errors";
 import { imageFallback } from "~/lib/sampleAssets";
 import AdminNav from "~/components/AdminNav";
-import ImageCropInput from "~/components/ImageCropInput";
 
 interface Player {
   id: number;
@@ -188,19 +187,26 @@ export default function AdminTeamEditPage() {
         <div className="bg-gray-800 p-8 rounded-lg shadow-xl mb-8">
           <h2 className="text-2xl font-bold text-white mb-6">Teambild</h2>
           <div className="flex flex-col items-center md:flex-row md:items-start gap-8">
-            <img
-              className="w-48 h-32 object-cover rounded-md border border-gray-600"
-              src={team.image_url || imageFallback("https://via.placeholder.com/300x200?text=No+Image")}
-              alt={team.name}
-            />
+            <div className="w-48 h-32 bg-gray-900 rounded-md border border-gray-600 flex items-center justify-center overflow-hidden">
+              <img
+                className="max-w-full max-h-full object-contain"
+                src={team.image_url || imageFallback("https://via.placeholder.com/300x200?text=No+Image")}
+                alt={team.name}
+              />
+            </div>
             <Form method="post" encType="multipart/form-data" className="space-y-4 flex-grow">
               <input type="hidden" name="_intent" value="imageUpload" />
-              <ImageCropInput
+              {/* No forced crop here, unlike the other image uploads - a
+                  team logo is shown at many different aspect ratios across
+                  the site (grid cards, hero banner), so cropping it to one
+                  fixed shape at upload time just cuts it off somewhere else
+                  instead. It's rendered with object-contain everywhere so
+                  the full logo is always visible. */}
+              <input
+                type="file"
                 id="team_image"
                 name="image"
-                aspect={3 / 2}
-                outputWidth={900}
-                outputHeight={600}
+                accept="image/*"
                 className="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-600 file:text-white hover:file:bg-red-700"
               />
               <button type="submit" disabled={isSubmitting} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700">

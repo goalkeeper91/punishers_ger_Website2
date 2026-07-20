@@ -109,7 +109,9 @@ export default function TeamsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {mainTeams.map((team) => (
                 <div key={team.id} className="bg-gray-800 rounded-lg shadow-xl overflow-hidden transform hover:scale-105 transition-transform duration-300">
-                  <img src={team.image_url || imageFallback("https://via.placeholder.com/400x250?text=No+Image")} alt={team.name} className="w-full h-56 object-cover" />
+                  <div className="w-full h-56 bg-gray-900 flex items-center justify-center">
+                    <img src={team.image_url || imageFallback("https://via.placeholder.com/400x250?text=No+Image")} alt={team.name} className="max-w-full max-h-full object-contain" />
+                  </div>
                   <div className="p-6">
                     <h3 className="text-2xl font-bold text-white mb-2">{team.name}</h3>
                     <p className="text-red-600 text-sm font-semibold uppercase mb-3">{team.game}</p>
@@ -133,7 +135,9 @@ export default function TeamsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
               {otherTeams.map((team) => (
                 <div key={team.id} className="bg-gray-800 rounded-lg shadow-xl overflow-hidden transform hover:scale-105 transition-transform duration-300">
-                  <img src={team.image_url || imageFallback("https://via.placeholder.com/300x200?text=No+Image")} alt={team.name} className="w-full h-40 object-cover" />
+                  <div className="w-full h-40 bg-gray-900 flex items-center justify-center">
+                    <img src={team.image_url || imageFallback("https://via.placeholder.com/300x200?text=No+Image")} alt={team.name} className="max-w-full max-h-full object-contain" />
+                  </div>
                   <div className="p-4">
                     <h3 className="text-xl font-bold text-white mb-1">{team.name}</h3>
                     <p className="text-red-600 text-xs font-semibold uppercase mb-3">{team.game}</p>

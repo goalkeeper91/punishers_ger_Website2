@@ -63,7 +63,7 @@ from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.models import Group, Permission
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils.text import slugify
 
 logger = logging.getLogger(__name__)
@@ -2499,11 +2499,19 @@ class AvailableUserSchema(BaseModel):
 
 @app.get("/admin/users/available-for-roster/", response_model=List[AvailableUserSchema])
 async def get_users_available_for_roster(current_user: CustomUser = Depends(require_team_management_access)):
-    """Registered users with no Player profile yet - populates the "add an
-    existing user to this roster" dropdown instead of requiring the
-    Teammanager to type an exact username (see create_player below)."""
+    """Registered users not currently on any team's roster - populates the
+    "add an existing user to this roster" dropdown instead of requiring the
+    Teammanager to type an exact username (see create_player below).
+
+    Includes users who already have a *teamless* Player profile (created via
+    the self-service /players/me/ endpoint, e.g. to link a FACEIT ID before
+    ever joining a team) - only a profile already attached to a team
+    (player_profile.team is set) means "already rostered"."""
     users = await sync_to_async(list)(
-        CustomUser.objects.filter(is_deleted=False, is_active=True, player_profile__isnull=True).order_by('username')
+        CustomUser.objects.filter(
+            Q(player_profile__isnull=True) | Q(player_profile__team__isnull=True),
+            is_deleted=False, is_active=True,
+        ).order_by('username')
     )
     return users
 
@@ -2516,22 +2524,37 @@ async def create_player(payload: PlayerCreate, current_user: CustomUser = Depend
     await ensure_team_access(current_user, team)
 
     user = None
+    existing_player = None
     if payload.user_id is not None:
         try:
             user = await sync_to_async(CustomUser.objects.get)(id=payload.user_id)
         except CustomUser.DoesNotExist:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
-        if await sync_to_async(Player.objects.filter(user=user).exists)():
+        existing_player = await sync_to_async(Player.objects.filter(user=user).first)()
+        if existing_player is not None and existing_player.team_id is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This user already has a player profile")
 
     def _create():
-        player = Player.objects.create(
-            team=team,
-            user=user,
-            ingame_name=payload.ingame_name,
-            role=payload.role,
-            description=payload.description,
-        )
+        if existing_player is not None:
+            # This user already has a teamless Player row (created via the
+            # self-service /players/me/ endpoint, e.g. to link a FACEIT ID
+            # before joining a team) - attach that same row to the roster
+            # instead of inserting a second one, which would violate
+            # Player.user's OneToOneField constraint.
+            player = existing_player
+            player.team = team
+            player.ingame_name = payload.ingame_name
+            player.role = payload.role
+            player.description = payload.description
+            player.save(update_fields=['team', 'ingame_name', 'role', 'description'])
+        else:
+            player = Player.objects.create(
+                team=team,
+                user=user,
+                ingame_name=payload.ingame_name,
+                role=payload.role,
+                description=payload.description,
+            )
         if user is not None:
             # Being on the roster is what grants this user Teammanager-style
             # access to the team (see ensure_team_access) - keeps
