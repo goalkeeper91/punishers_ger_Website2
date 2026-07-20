@@ -26,6 +26,11 @@ interface Team {
   players: Player[];
 }
 
+interface AvailableUser {
+  id: number;
+  username: string;
+}
+
 export const clientLoader: ClientLoaderFunction = async ({ params }) => {
   if (!isLoggedIn()) {
     throw redirect("/login");
@@ -48,7 +53,14 @@ export const clientLoader: ClientLoaderFunction = async ({ params }) => {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
   const team: Team = await response.json();
-  return { team };
+
+  let availableUsers: AvailableUser[] = [];
+  const availableUsersResponse = await authFetch("/admin/users/available-for-roster/");
+  if (availableUsersResponse.ok) {
+    availableUsers = await availableUsersResponse.json();
+  }
+
+  return { team, availableUsers };
 };
 
 export function HydrateFallback() {
@@ -112,16 +124,11 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
 
       let userId: number | null = null;
       if (memberType !== "guest") {
-        const username = formData.get("username");
-        if (typeof username !== "string" || !username.trim()) {
-          return { errors: { username: "Benutzername erforderlich." } };
+        const rawUserId = formData.get("user_id");
+        if (typeof rawUserId !== "string" || !rawUserId) {
+          return { errors: { username: "Nutzer auswählen." } };
         }
-        const userResponse = await fetch(`${API_BASE_URL}/users/${username.trim()}/`);
-        if (!userResponse.ok) {
-          return { errors: { username: "Nutzer nicht gefunden." } };
-        }
-        const user = await userResponse.json();
-        userId = user.id;
+        userId = Number(rawUserId);
       }
 
       const response = await authFetch("/admin/players/", {
@@ -159,7 +166,7 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
 };
 
 export default function AdminTeamEditPage() {
-  const { team } = useLoaderData() as { team: Team };
+  const { team, availableUsers } = useLoaderData() as { team: Team; availableUsers: AvailableUser[] };
   const actionData = useActionData() as
     | { error?: string; success?: string; errors?: { [key: string]: string } }
     | undefined;
@@ -293,8 +300,14 @@ export default function AdminTeamEditPage() {
             </div>
             {memberType === "registered" && (
               <div>
-                <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-1">Benutzername <span className="text-red-500">*</span></label>
-                <input type="text" id="username" name="username" required className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
+                <label htmlFor="user_id" className="block text-sm font-medium text-gray-300 mb-1">Benutzer <span className="text-red-500">*</span></label>
+                <select id="user_id" name="user_id" required defaultValue="" className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm">
+                  <option value="" disabled>Bitte wählen...</option>
+                  {availableUsers.map((user) => (
+                    <option key={user.id} value={user.id}>{user.username}</option>
+                  ))}
+                </select>
+                {availableUsers.length === 0 && <p className="mt-1 text-xs text-gray-500">Keine freien registrierten Nutzer verfügbar.</p>}
                 {actionData?.errors?.username && <p className="mt-1 text-sm text-red-500">{actionData.errors.username}</p>}
               </div>
             )}

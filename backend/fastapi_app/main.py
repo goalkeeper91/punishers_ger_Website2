@@ -2490,6 +2490,23 @@ async def get_player_admin(player_id: int, current_user: CustomUser = Depends(re
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform this action")
     return await build_player_schema(player)
 
+class AvailableUserSchema(BaseModel):
+    id: int
+    username: str
+
+    class Config:
+        from_attributes = True
+
+@app.get("/admin/users/available-for-roster/", response_model=List[AvailableUserSchema])
+async def get_users_available_for_roster(current_user: CustomUser = Depends(require_team_management_access)):
+    """Registered users with no Player profile yet - populates the "add an
+    existing user to this roster" dropdown instead of requiring the
+    Teammanager to type an exact username (see create_player below)."""
+    users = await sync_to_async(list)(
+        CustomUser.objects.filter(is_deleted=False, is_active=True, player_profile__isnull=True).order_by('username')
+    )
+    return users
+
 @app.post("/admin/players/", response_model=PlayerSchema, status_code=status.HTTP_201_CREATED)
 async def create_player(payload: PlayerCreate, current_user: CustomUser = Depends(require_team_management_access)):
     try:
