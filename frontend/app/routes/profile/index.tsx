@@ -121,7 +121,7 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
   try {
     if (formType === "profileUpdate") {
       const updateData: { [key: string]: any } = {};
-      const fields = ["first_name", "last_name", "steam_id", "game_profile_link", "twitter_link", "twitch_link", "youtube_link", "instagram_link", "tiktok_link"];
+      const fields = ["first_name", "last_name", "steam_id", "game_profile_link", "twitter_link", "twitch_link", "youtube_link", "instagram_link", "tiktok_link", "creator_bio"];
       fields.forEach(field => {
         const value = formData.get(field);
         if (value !== null && value !== "") { // Only send fields that are present and not empty
@@ -130,6 +130,10 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
           updateData[field] = null;
         }
       });
+      // Checkbox: absent from formData entirely when unchecked, so this
+      // can't reuse the text-field loop above (an absent value there means
+      // "field untouched", not "false").
+      updateData.is_content_creator = formData.get("is_content_creator") === "on";
 
       const response = await authFetch(`/users/me/`, {
         method: "PUT",
@@ -534,6 +538,32 @@ export default function ProfilePage() {
                   />
                 </div>
               </div>
+
+              <div className="border-t border-gray-700 pt-6">
+                <h3 className="text-lg font-semibold text-white mb-1">{t("details.creator_heading")}</h3>
+                <p className="text-gray-400 text-sm mb-4">{t("details.creator_hint")}</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="is_content_creator"
+                    name="is_content_creator"
+                    defaultChecked={user.is_content_creator}
+                    className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-red-600 focus:ring-red-500"
+                  />
+                  <label htmlFor="is_content_creator" className="text-sm text-gray-300">{t("details.is_content_creator_label")}</label>
+                </div>
+                <div className="mt-4">
+                  <label htmlFor="creator_bio" className="block text-sm font-medium text-gray-300">{t("details.creator_bio_label")}</label>
+                  <textarea
+                    id="creator_bio"
+                    name="creator_bio"
+                    rows={3}
+                    defaultValue={user.creator_bio || ""}
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                  />
+                </div>
+              </div>
+
               <button
                 type="submit"
                 className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"

@@ -35,6 +35,10 @@
     "youtube_link_label": "YouTube Link",
     "instagram_link_label": "Instagram Link",
     "tiktok_link_label": "TikTok Link",
+    "creator_heading": "Content Creator",
+    "creator_hint": "When enabled, you'll appear with your picture, bio and social links on the public Creators page.",
+    "is_content_creator_label": "I'm a content creator and want to be listed on the Creators page",
+    "creator_bio_label": "Short bio for the Creators page",
     "saving": "Saving...",
     "save": "Save Profile"
   },

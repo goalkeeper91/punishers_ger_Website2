@@ -326,6 +326,14 @@ class CustomUserSchema(BaseModel):
     activated_at: Optional[str] = None
     roles: List[str] = []
     permissions: List[str] = []
+    # Gates a self-service listing on /creators/ (see get_creators below) -
+    # is_content_creator is the user's own opt-in, is_featured_creator is an
+    # admin/editorial curation decision (bigger card, shown first) and can
+    # only be set via the admin-only /admin/users/{id}/featured-creator/
+    # endpoint, never through this same self-service PUT /users/me/.
+    is_content_creator: bool = False
+    is_featured_creator: bool = False
+    creator_bio: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -470,6 +478,10 @@ class UserProfileUpdate(BaseModel):
     youtube_link: Optional[str] = Field(None, max_length=200)
     instagram_link: Optional[str] = Field(None, max_length=200)
     tiktok_link: Optional[str] = Field(None, max_length=200)
+    # Self-service opt-in for the /creators/ page - is_featured_creator is
+    # deliberately NOT here (admin-only, see /admin/users/{id}/featured-creator/).
+    is_content_creator: Optional[bool] = None
+    creator_bio: Optional[str] = None
 
     @field_validator("steam_id", mode="before")
     @classmethod
@@ -689,6 +701,9 @@ class UserRolesUpdate(BaseModel):
 class SuperuserUpdate(BaseModel):
     is_superuser: bool
 
+class FeaturedCreatorUpdate(BaseModel):
+    is_featured_creator: bool
+
 class PermissionSchema(BaseModel):
     codename: str  # "app_label.codename"
     label: str
@@ -822,6 +837,9 @@ async def build_user_schema(user: CustomUser) -> CustomUserSchema:
         activated_at=user.activated_at.isoformat() if user.activated_at else None,
         roles=roles,
         permissions=permissions,
+        is_content_creator=user.is_content_creator,
+        is_featured_creator=user.is_featured_creator,
+        creator_bio=user.creator_bio,
     )
 
 # =====================================================================
@@ -4267,6 +4285,30 @@ async def set_user_superuser(
     await sync_to_async(_log_action)(
         current_admin,
         "superuser_grant" if payload.is_superuser else "superuser_revoke",
+        "CustomUser", user.id, user.username,
+    )
+    return await build_user_schema(user)
+
+@app.put("/admin/users/{user_id}/featured-creator/", response_model=CustomUserSchema)
+async def set_user_featured_creator(
+    user_id: int,
+    payload: FeaturedCreatorUpdate,
+    current_admin: CustomUser = Depends(require_permission("users.manage_users")),
+):
+    """Editorial curation for the /creators/ page's "Featured" section
+    (bigger card, shown first - see get_creators). Deliberately separate
+    from is_content_creator, which the user opts into themselves via
+    PUT /users/me/ - being featured is always an admin/editorial call."""
+    try:
+        user = await sync_to_async(CustomUser.objects.get)(id=user_id)
+    except CustomUser.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.is_featured_creator = payload.is_featured_creator
+    await sync_to_async(user.save)(update_fields=["is_featured_creator"])
+    await sync_to_async(_log_action)(
+        current_admin,
+        "feature_creator" if payload.is_featured_creator else "unfeature_creator",
         "CustomUser", user.id, user.username,
     )
     return await build_user_schema(user)

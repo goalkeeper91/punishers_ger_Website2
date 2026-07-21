@@ -151,6 +151,21 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       return { success: isSuperuser ? "Admin-Rechte gewährt." : "Admin-Rechte entzogen." };
     }
 
+    if (intent === "setFeaturedCreator") {
+      const userId = formData.get("userId");
+      const isFeatured = formData.get("isFeatured") === "true";
+      const response = await authFetch(`/admin/users/${userId}/featured-creator/`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_featured_creator: isFeatured }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { error: extractErrorMessage(errorData, "Featured-Status konnte nicht geändert werden.") };
+      }
+      return { success: isFeatured ? "Als Featured Creator markiert." : "Featured-Markierung entfernt." };
+    }
+
     if (intent === "hardDelete") {
       const userId = formData.get("userId");
       const response = await authFetch(`/admin/users/${userId}/`, { method: "DELETE" });
@@ -305,6 +320,9 @@ export default function AdminUsersPage() {
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                   Rollen
                 </th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  Creator
+                </th>
                 {isSuperuser && (
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Admin
@@ -362,6 +380,29 @@ export default function AdminUsersPage() {
                           ))
                         )}
                       </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    {user.is_content_creator ? (
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-gray-700 text-gray-200 text-xs rounded-full">Creator</span>
+                        {user.is_featured_creator && (
+                          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs rounded-full font-semibold">★ Featured</span>
+                        )}
+                        <Form method="post" className="inline">
+                          <input type="hidden" name="_intent" value="setFeaturedCreator" />
+                          <input type="hidden" name="userId" value={user.id} />
+                          <input type="hidden" name="isFeatured" value={String(!user.is_featured_creator)} />
+                          <button
+                            type="submit"
+                            className="py-1 px-2 rounded-md text-white text-xs font-semibold bg-gray-600 hover:bg-gray-500"
+                          >
+                            {user.is_featured_creator ? "Nicht mehr featuren" : "Featuren"}
+                          </button>
+                        </Form>
+                      </div>
+                    ) : (
+                      <span className="text-gray-500 text-xs">–</span>
                     )}
                   </td>
                   {isSuperuser && (

@@ -42,6 +42,12 @@ export interface AuthUser {
   // superuser (Django's has_perm() bypasses this list entirely for them),
   // so any check here must be combined with `is_superuser ||`.
   permissions: string[];
+  // Gates a listing on /creators/ - is_content_creator is the user's own
+  // opt-in (see profile/index.tsx), is_featured_creator is an admin-only
+  // editorial call (see admin/users.tsx) for the bigger "Featured" card.
+  is_content_creator: boolean;
+  is_featured_creator: boolean;
+  creator_bio: string | null;
 }
 
 // "System roles" with actual enforced meaning on the backend (see

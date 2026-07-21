@@ -35,6 +35,10 @@
     "youtube_link_label": "YouTube Link",
     "instagram_link_label": "Instagram Link",
     "tiktok_link_label": "TikTok Link",
+    "creator_heading": "Content Creator",
+    "creator_hint": "Wenn aktiviert, erscheinst du mit Bild, Bio und deinen Social-Links auf der öffentlichen Creators-Seite.",
+    "is_content_creator_label": "Ich bin Content Creator und möchte auf der Creators-Seite gelistet werden",
+    "creator_bio_label": "Kurzbeschreibung für die Creators-Seite",
     "saving": "Wird gespeichert...",
     "save": "Profil speichern"
   },
