@@ -1,9 +1,19 @@
-import type { ClientActionFunction, LoaderFunction } from "react-router";
+import type { ClientActionFunction, LoaderFunction, MetaFunction } from "react-router";
 import { Form, useActionData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { extractErrorMessage } from "~/lib/errors";
 import { translate, getLanguageFromCookieHeader } from "~/i18n/config";
+import { buildMeta } from "~/lib/seo";
+
+// Transactional page, not meant to show up in search results - noindex.
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Passwort vergessen",
+    description: "Setze dein Punishers Germany-Passwort zurück.",
+    path: "/forgot-password",
+    noindex: true,
+  });
 
 export const loader: LoaderFunction = async () => {
   return null;

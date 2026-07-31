@@ -1,10 +1,12 @@
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
 import { getLanguageFromCookieHeader } from "~/i18n/config";
+import { stripMarkdown } from "~/lib/markdown";
+import { buildMeta } from "~/lib/seo";
 
 interface NewsArticle {
   id: number;
@@ -28,6 +30,25 @@ export const loader: LoaderFunction = async ({ params, request }) => {
   }
   const article: NewsArticle = await response.json();
   return { article };
+};
+
+export const meta: MetaFunction<typeof loader> = ({ data, params }) => {
+  if (!data) {
+    return buildMeta({
+      title: "Artikel nicht gefunden",
+      description: "Der gesuchte News-Artikel wurde nicht gefunden.",
+      path: `/news/${params.slug ?? ""}`,
+      noindex: true,
+    });
+  }
+  const { article } = data as { article: NewsArticle };
+  const description = stripMarkdown(article.content).slice(0, 160);
+  return buildMeta({
+    title: article.title,
+    description,
+    path: `/news/${article.slug}`,
+    image: article.image_url || undefined,
+  });
 };
 
 function formatDate(dateString: string, language: string): string {

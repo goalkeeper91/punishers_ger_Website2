@@ -2,6 +2,8 @@ import { type RouteConfig, index, route } from "@react-router/dev/routes";
 
 export default [
   index("routes/home.tsx"),
+  route("/robots.txt", "routes/robots.tsx"), // Resource route, no UI - plain-text robots directives
+  route("/sitemap.xml", "routes/sitemap.tsx"), // Resource route, no UI - dynamically includes published news/teams
   route("/news", "routes/news.tsx"),
   route("/news/:slug", "routes/news.$slug.tsx"),
   route("/teams", "routes/teams.tsx"),

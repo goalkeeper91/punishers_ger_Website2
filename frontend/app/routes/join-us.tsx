@@ -1,17 +1,16 @@
-// import type { MetaFunction } from "@react-router/node"; // Removed Remix-specific MetaFunction
-
-// export const meta: MetaFunction = () => { // Removed Remix-specific MetaFunction
-//   return [
-//     { title: "Werde Teil von uns - Punishers Germany" },
-//     { name: "description", content: "Werde Spieler, Content Creator oder Community-Mitglied bei Punishers Germany. Finde deine Rolle in unserer Esport-Organisation!" },
-//   ];
-// };
-
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { fetchPageBackground } from "~/lib/siteSettings";
 import { fetchDiscordInviteUrl } from "~/lib/publicContent";
+import { buildMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Werde Teil von uns",
+    description: "Werde Spieler, Content Creator oder Community-Mitglied bei Punishers Germany. Finde deine Rolle in unserer Esport-Organisation!",
+    path: "/join-us",
+  });
 
 export const loader: LoaderFunction = async () => {
   const [backgroundUrl, discordUrl] = await Promise.all([

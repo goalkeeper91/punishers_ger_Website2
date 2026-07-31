@@ -34,6 +34,7 @@ import {
   LANGUAGE_COOKIE_NAME,
   type SupportedLanguage,
 } from "~/i18n/config";
+import { SITE_URL, SITE_NAME, DEFAULT_IMAGE } from "~/lib/seo";
 
 type UserProfile = AuthUser;
 
@@ -62,6 +63,31 @@ export const loader: LoaderFunction = async ({ request }) => {
   const language = getLanguageFromCookieHeader(request.headers.get("Cookie"));
   return { user: null, sponsors, socialLinks, language };
 };
+
+// Root deliberately never exports its own `meta()`: React Router v7's meta
+// merging is a full REPLACE per matched route, not a concatenation (see
+// chunk-KS7C4IRE.mjs's `meta = [...routeMeta]` in the framework internals -
+// confirmed by testing, the docs don't call this out explicitly) - so a
+// root-level meta() would be silently discarded on every single page below
+// it, since every real route here defines its own meta() via buildMeta().
+// The site-wide JSON-LD is rendered directly in Layout()'s <head> instead,
+// bypassing the meta-merge mechanism entirely so it survives on every page.
+function organizationJsonLd(socialLinks: SocialLink[]) {
+  const json = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "SportsOrganization",
+    name: SITE_NAME,
+    url: SITE_URL,
+    logo: DEFAULT_IMAGE,
+    sameAs: socialLinks.map((link) => link.url),
+  });
+  // socialLinks.url is admin-entered data, not hardcoded - JSON.stringify
+  // doesn't escape "<", so an admin-entered URL containing "</script>"
+  // could otherwise break out of this tag early. < is valid inside a
+  // JSON string and parses identically, it just can't prematurely close
+  // the surrounding <script> element.
+  return json.replace(/</g, "\\u003c");
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   // useLoaderData() returns undefined here when a URL matches no route at
@@ -158,6 +184,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <Links />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: organizationJsonLd(socialLinks) }}
+        />
       </head>
       <body className="min-h-screen bg-gray-950 text-gray-100 font-sans">
         <I18nextProvider i18n={i18nInstance}>
@@ -224,6 +254,7 @@ function SiteChrome({
 
   const navLinks = [
     { href: "/", label: t("nav.home") },
+    { href: "/about-us", label: t("nav.about_us") },
     { href: "/news", label: t("nav.news") },
     { href: "/teams", label: t("nav.teams") },
     { href: "/creators", label: t("nav.creators") },

@@ -1,17 +1,19 @@
-import type { ClientActionFunction, LoaderFunction } from "react-router";
+import type { ClientActionFunction, LoaderFunction, MetaFunction } from "react-router";
 import { Form, useActionData, useSearchParams, redirect } from "react-router"; // Import Form and useActionData
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { extractErrorMessage } from "~/lib/errors";
 import { translate, getLanguageFromCookieHeader } from "~/i18n/config";
+import { buildMeta } from "~/lib/seo";
 
-// Removed Remix-specific MetaFunction
-// export const meta: MetaFunction = () => { // Removed Remix-specific MetaFunction
-//   return [
-//     { title: "Registrieren - Punishers Germany" },
-//     { name: "description", content: "Erstelle ein neues Konto bei Punishers Germany." },
-//   ];
-// };
+// Transactional page, not meant to show up in search results - noindex.
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Registrieren",
+    description: "Erstelle ein neues Konto bei Punishers Germany.",
+    path: "/register",
+    noindex: true,
+  });
 
 // Loader function (optional for register, but good practice if you need to load initial data)
 export const loader: LoaderFunction = async () => {

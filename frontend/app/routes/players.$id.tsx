@@ -1,8 +1,9 @@
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
+import { buildMeta } from "~/lib/seo";
 
 // Public player profile - GET /players/{id}/ is unauthenticated by design and
 // only ever returns what the player themselves (or their Teammanager, for a
@@ -40,6 +41,27 @@ export const loader: LoaderFunction = async ({ params }) => {
   }
   const player: PublicPlayerProfile = await response.json();
   return { player };
+};
+
+export const meta: MetaFunction<typeof loader> = ({ data, params }) => {
+  const { player } = (data ?? {}) as { player: PublicPlayerProfile | null };
+  if (!player) {
+    return buildMeta({
+      title: "Spieler nicht gefunden",
+      description: "Das gesuchte Spielerprofil wurde nicht gefunden.",
+      path: `/players/${params.id ?? ""}`,
+      noindex: true,
+    });
+  }
+  const teamSuffix = player.team_name ? ` - ${player.team_name}` : "";
+  return buildMeta({
+    title: `${player.ingame_name}${teamSuffix}`,
+    description:
+      player.description?.slice(0, 160) ||
+      `${player.ingame_name}, ${player.role ?? "Spieler"} bei Punishers Germany${player.team_game ? ` (${player.team_game})` : ""}.`,
+    path: `/players/${params.id ?? ""}`,
+    image: player.image_url || undefined,
+  });
 };
 
 export default function PublicPlayerProfilePage() {

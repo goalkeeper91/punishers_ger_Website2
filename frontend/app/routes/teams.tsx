@@ -1,17 +1,17 @@
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
 import { fetchPageBackground } from "~/lib/siteSettings";
+import { buildMeta } from "~/lib/seo";
 
-// Removed Remix-specific MetaFunction
-// export const meta: MetaFunction = () => {
-//   return [
-//     { title: "Unsere Teams - Punishers Germany" },
-//     { name: "description", content: "Entdecke die Esport-Teams von Punishers Germany. Finde Main Teams und filtere nach Spielen wie CS2, Valorant und League of Legends." },
-//   ];
-// };
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Unsere Teams",
+    description: "Entdecke die Esport-Teams von Punishers Germany. Finde Main Teams und filtere nach Spielen wie CS2, Valorant und League of Legends.",
+    path: "/teams",
+  });
 
 interface Player {
   id: number;

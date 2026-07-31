@@ -1,15 +1,14 @@
-// import type { MetaFunction } from "@react-router/node"; // Removed Remix-specific MetaFunction
-
-// export const meta: MetaFunction = () => { // Removed Remix-specific MetaFunction
-//   return [
-//     { title: "Kontakt - Punishers Germany" },
-//     { name: "description", content: "Kontaktiere Punishers Germany für Anfragen, Partnerschaften oder allgemeine Informationen. Wir freuen uns auf deine Nachricht!" },
-//   ];
-// };
-
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
+import { buildMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Kontakt",
+    description: "Kontaktiere Punishers Germany für Anfragen, Partnerschaften oder allgemeine Informationen. Wir freuen uns auf deine Nachricht!",
+    path: "/contact",
+  });
 import { fetchPageBackground } from "~/lib/siteSettings";
 import { fetchDiscordInviteUrl } from "~/lib/publicContent";
 

@@ -1,15 +1,14 @@
-// import type { MetaFunction } from "@react-router/node"; // Removed Remix-specific MetaFunction
-
-// export const meta: MetaFunction = () => { // Removed Remix-specific MetaFunction
-//   return [
-//     { title: "Unsere Content Creators - Punishers Germany" },
-//     { name: "description", content: "Entdecke die Content Creators von Punishers Germany. Streamer, YouTuber und mehr, die unsere Community unterhalten." },
-//   ];
-// };
-
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
+import { buildMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Unsere Content Creators",
+    description: "Entdecke die Content Creators von Punishers Germany. Streamer, YouTuber und mehr, die unsere Community unterhalten.",
+    path: "/creators",
+  });
 import { fetchCreators, type Creator } from "~/lib/publicContent";
 import { fetchPageBackground } from "~/lib/siteSettings";
 

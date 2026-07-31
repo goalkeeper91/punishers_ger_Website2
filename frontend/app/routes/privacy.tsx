@@ -1,15 +1,14 @@
-// import type { MetaFunction } from "@react-router/node"; // Removed Remix-specific MetaFunction
-
-// export const meta: MetaFunction = () => { // Removed Remix-specific MetaFunction
-//   return [
-//     { title: "Datenschutzerklärung - Punishers Germany" },
-//     { name: "description", content: "Datenschutzerklärung der Esport-Organisation Punishers Germany. Informationen zum Umgang mit persönlichen Daten." },
-//   ];
-// };
-
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
+import { buildMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Datenschutzerklärung",
+    description: "Datenschutzerklärung der Esport-Organisation Punishers Germany. Informationen zum Umgang mit persönlichen Daten.",
+    path: "/privacy",
+  });
 import { fetchPageBackground } from "~/lib/siteSettings";
 
 export const loader: LoaderFunction = async () => {

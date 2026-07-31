@@ -16,13 +16,16 @@ import {
   type Creator,
 } from "~/lib/publicContent";
 import { fetchHeroVideoUrl } from "~/lib/siteSettings";
+import { buildMeta } from "~/lib/seo";
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Punishers Germany - Esport Organisation" },
-    { name: "description", content: "Deine neue Heimat im Esport. Werde Teil der Punishers Germany Familie!" },
-  ];
-};
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Punishers Germany - Esport Organisation",
+    description:
+      "Punishers Germany: Deine neue Heimat im Esport. Teams in CS2, Valorant, League of Legends, Rocket League und Rainbow Six Siege - werde Teil der Familie!",
+    path: "/",
+    brandTitle: true,
+  });
 
 export const loader: LoaderFunction = async () => {
   const [sponsors, matchHighlights, heroVideoUrl, mainTeams, creators, discordUrl] = await Promise.all([

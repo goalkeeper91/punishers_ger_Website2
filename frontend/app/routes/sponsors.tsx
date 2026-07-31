@@ -1,15 +1,14 @@
-// import type { MetaFunction } from "@react-router/node"; // Removed Remix-specific MetaFunction
-
-// export const meta: MetaFunction = () => { // Removed Remix-specific MetaFunction
-//   return [
-//     { title: "Unsere Sponsoren - Punishers Germany" },
-//     { name: "description", content: "Entdecke die Partner und Sponsoren von Punishers Germany. Werde Teil unseres Erfolgs und unterstütze unsere Esport-Organisation." },
-//   ];
-// };
-
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
+import { buildMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Unsere Sponsoren",
+    description: "Entdecke die Partner und Sponsoren von Punishers Germany. Werde Teil unseres Erfolgs und unterstütze unsere Esport-Organisation.",
+    path: "/sponsors",
+  });
 import { fetchActiveSponsors, trackSponsorClick, type Sponsor } from "~/lib/publicContent";
 import { fetchPageBackground } from "~/lib/siteSettings";
 

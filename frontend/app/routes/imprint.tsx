@@ -1,15 +1,14 @@
-// import type { MetaFunction } from "@react-router/node"; // Removed Remix-specific MetaFunction
-
-// export const meta: MetaFunction = () => { // Removed Remix-specific MetaFunction
-//   return [
-//     { title: "Impressum - Punishers Germany" },
-//     { name: "description", content: "Impressum der Esport-Organisation Punishers Germany. Rechtliche Angaben und Kontaktinformationen." },
-//   ];
-// };
-
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
+import { buildMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Impressum",
+    description: "Impressum der Esport-Organisation Punishers Germany. Rechtliche Angaben und Kontaktinformationen.",
+    path: "/imprint",
+  });
 import { fetchPageBackground } from "~/lib/siteSettings";
 
 export const loader: LoaderFunction = async () => {

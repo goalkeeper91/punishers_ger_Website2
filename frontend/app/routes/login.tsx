@@ -1,4 +1,4 @@
-import type { ClientActionFunction, LoaderFunction } from "react-router";
+import type { ClientActionFunction, LoaderFunction, MetaFunction } from "react-router";
 import { Form, useActionData, useNavigate } from "react-router";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -6,6 +6,16 @@ import { API_BASE_URL } from "~/lib/config";
 import { setTokens, type TokenPair } from "~/lib/auth";
 import { extractErrorMessage } from "~/lib/errors";
 import { translate, getLanguageFromCookieHeader } from "~/i18n/config";
+import { buildMeta } from "~/lib/seo";
+
+// Transactional page, not meant to show up in search results - noindex.
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Login",
+    description: "Melde dich bei deinem Punishers Germany-Konto an.",
+    path: "/login",
+    noindex: true,
+  });
 
 // Loader function (optional for login, but good practice if you need to load initial data)
 export const loader: LoaderFunction = async () => {

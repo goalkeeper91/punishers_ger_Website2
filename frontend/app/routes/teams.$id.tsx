@@ -1,8 +1,9 @@
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
+import { buildMeta } from "~/lib/seo";
 
 interface Player {
   id: number;
@@ -40,6 +41,26 @@ export const loader: LoaderFunction = async ({ params }) => {
   }
   const team: Team = await response.json();
   return { team };
+};
+
+export const meta: MetaFunction<typeof loader> = ({ data, params }) => {
+  if (!data) {
+    return buildMeta({
+      title: "Team nicht gefunden",
+      description: "Das gesuchte Team wurde nicht gefunden.",
+      path: `/teams/${params.id ?? ""}`,
+      noindex: true,
+    });
+  }
+  const { team } = data as { team: Team };
+  return buildMeta({
+    title: `${team.name} (${team.game})`,
+    description:
+      team.description?.slice(0, 160) ||
+      `${team.name} - das ${team.game}-Team von Punishers Germany. Entdecke den Kader und alle Spieler.`,
+    path: `/teams/${team.id}`,
+    image: team.image_url || undefined,
+  });
 };
 
 export default function TeamDetailPage() {

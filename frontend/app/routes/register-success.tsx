@@ -1,5 +1,15 @@
 import React from 'react';
+import type { MetaFunction } from "react-router";
 import { useTranslation } from "react-i18next";
+import { buildMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Registrierung erfolgreich",
+    description: "Dein Konto bei Punishers Germany wurde erfolgreich erstellt.",
+    path: "/register-success",
+    noindex: true,
+  });
 
 export default function RegisterSuccessPage() {
   const { t } = useTranslation("auth");
