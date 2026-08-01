@@ -23,6 +23,7 @@
   "details": {
     "heading": "Profildetails bearbeiten",
     "username_label": "Benutzername",
+    "username_hint": "Muss eindeutig bleiben. Erlaubt sind Buchstaben, Zahlen und @/./+/-/_",
     "email_label": "E-Mail",
     "first_name_label": "Vorname",
     "last_name_label": "Nachname",
@@ -88,6 +89,7 @@
     "stats_updated": "Statistik aktualisiert.",
     "unknown_form_type": "Unbekannter Formular-Typ.",
     "generic_error": "Ein Fehler ist aufgetreten.",
-    "twitch_connect_failed": "Twitch-Verbindung konnte nicht gestartet werden."
+    "twitch_connect_failed": "Twitch-Verbindung konnte nicht gestartet werden.",
+    "username_taken": "Dieser Benutzername ist bereits vergeben."
   }
 }

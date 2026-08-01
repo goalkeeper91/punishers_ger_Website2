@@ -23,6 +23,7 @@
   "details": {
     "heading": "Edit Profile Details",
     "username_label": "Username",
+    "username_hint": "Must stay unique. Allowed characters: letters, digits and @/./+/-/_",
     "email_label": "Email",
     "first_name_label": "First Name",
     "last_name_label": "Last Name",
@@ -88,6 +89,7 @@
     "stats_updated": "Stats updated.",
     "unknown_form_type": "Unknown form type.",
     "generic_error": "An error occurred.",
-    "twitch_connect_failed": "Could not start Twitch connection."
+    "twitch_connect_failed": "Could not start Twitch connection.",
+    "username_taken": "This username is already taken."
   }
 }

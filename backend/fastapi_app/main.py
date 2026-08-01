@@ -64,6 +64,7 @@ from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db.models import F, Q
 from django.utils.text import slugify
 
@@ -462,6 +463,11 @@ class PasswordResetConfirm(BaseModel):
 STEAM64_BASE = 76561197960265728  # SteamID64 for the lowest valid account (Y=0, Z=0)
 STEAM2_PATTERN = re.compile(r"STEAM_([0-5]):([01]):(\d+)", re.IGNORECASE)
 
+# Same validator Django's own AbstractUser.username column is built with -
+# reused here rather than re-declaring the allowed-character regex so this
+# stays consistent with the DB column's own constraint automatically.
+_username_format_validator = UnicodeUsernameValidator()
+
 class UserProfileUpdate(BaseModel):
     # max_length values mirror the CharField/URLField columns in
     # users/models.py exactly - without these, an over-length value (e.g. a
@@ -469,6 +475,7 @@ class UserProfileUpdate(BaseModel):
     # an unhandled django.db.utils.DataError at save time instead of a clean
     # validation error, surfacing to the frontend as a raw, non-JSON
     # "Internal Server Error" response.
+    username: Optional[str] = Field(None, max_length=150)
     first_name: Optional[str] = Field(None, max_length=150)
     last_name: Optional[str] = Field(None, max_length=150)
     steam_id: Optional[str] = Field(None, max_length=17)
@@ -482,6 +489,20 @@ class UserProfileUpdate(BaseModel):
     # deliberately NOT here (admin-only, see /admin/users/{id}/featured-creator/).
     is_content_creator: Optional[bool] = None
     creator_bio: Optional[str] = None
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username_format(cls, value):
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("Benutzername darf nicht leer sein.")
+        try:
+            _username_format_validator(value)
+        except DjangoValidationError as exc:
+            raise ValueError(" ".join(exc.messages))
+        return value
 
     @field_validator("steam_id", mode="before")
     @classmethod
@@ -1196,8 +1217,20 @@ async def update_user_profile(
 ):
     user = current_user # Identity comes from the access token, not the request body/path
 
+    update_data = user_update.model_dump(exclude_unset=True)
+    if "username" in update_data and update_data["username"] != user.username:
+        new_username = update_data["username"]
+        taken = await sync_to_async(
+            CustomUser.objects.filter(username=new_username).exclude(id=user.id).exists
+        )()
+        if taken:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already registered"
+            )
+
     update_fields = []
-    for field, value in user_update.model_dump(exclude_unset=True).items():
+    for field, value in update_data.items():
         # first_name/last_name are Django's own AbstractUser CharFields:
         # blank=True but NOT null=True, so the DB column rejects NULL - the
         # frontend sends null for a cleared field (see profile/index.tsx),

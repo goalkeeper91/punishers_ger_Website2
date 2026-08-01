@@ -121,7 +121,7 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
   try {
     if (formType === "profileUpdate") {
       const updateData: { [key: string]: any } = {};
-      const fields = ["first_name", "last_name", "steam_id", "game_profile_link", "twitter_link", "twitch_link", "youtube_link", "instagram_link", "tiktok_link", "creator_bio"];
+      const fields = ["username", "first_name", "last_name", "steam_id", "game_profile_link", "twitter_link", "twitch_link", "youtube_link", "instagram_link", "tiktok_link", "creator_bio"];
       fields.forEach(field => {
         const value = formData.get(field);
         if (value !== null && value !== "") { // Only send fields that are present and not empty
@@ -145,7 +145,11 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+        const message = extractErrorMessage(errorData, `HTTP error! status: ${response.status}`);
+        if (response.status === 400 && message === "Username already registered") {
+          throw new Error(t("action_messages.username_taken"));
+        }
+        throw new Error(message);
       }
       return { success: t("action_messages.profile_updated") };
 
@@ -430,9 +434,12 @@ export default function ProfilePage() {
                     id="username"
                     name="username"
                     defaultValue={user.username}
-                    disabled // Username usually not editable directly
-                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm cursor-not-allowed"
+                    required
+                    minLength={3}
+                    maxLength={150}
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
                   />
+                  <p className="mt-1 text-xs text-gray-400">{t("details.username_hint")}</p>
                 </div>
                 <div>
                   <label htmlFor="email" className="block text-sm font-medium text-gray-300">{t("details.email_label")}</label>
