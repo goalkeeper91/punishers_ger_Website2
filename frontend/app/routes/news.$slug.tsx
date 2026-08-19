@@ -6,7 +6,7 @@ import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
 import { getLanguageFromCookieHeader } from "~/i18n/config";
 import { stripMarkdown } from "~/lib/markdown";
-import { buildMeta } from "~/lib/seo";
+import { buildMeta, SITE_URL, SITE_NAME, DEFAULT_IMAGE } from "~/lib/seo";
 
 interface NewsArticle {
   id: number;
@@ -48,8 +48,31 @@ export const meta: MetaFunction<typeof loader> = ({ data, params }) => {
     description,
     path: `/news/${article.slug}`,
     image: article.image_url || undefined,
+    type: "article",
+    publishedTime: article.published_date,
+    modifiedTime: article.updated_date,
+    author: article.author_name || undefined,
   });
 };
+
+// Article rich-result eligibility (Google Search/News) - rendered directly
+// in the page body rather than via meta(), since React Router's meta()
+// descriptor system only covers <title>/<meta>/<link>, not <script> tags
+// (see root.tsx's organizationJsonLd for the same reasoning/escaping).
+function newsArticleJsonLd(article: NewsArticle): string {
+  const json = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    headline: article.title,
+    image: article.image_url ? [article.image_url] : [DEFAULT_IMAGE],
+    datePublished: article.published_date,
+    dateModified: article.updated_date,
+    author: article.author_name ? { "@type": "Person", name: article.author_name } : { "@type": "Organization", name: SITE_NAME },
+    publisher: { "@type": "Organization", name: SITE_NAME, logo: { "@type": "ImageObject", url: DEFAULT_IMAGE } },
+    mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE_URL}/news/${article.slug}` },
+  });
+  return json.replace(/</g, "\\u003c");
+}
 
 function formatDate(dateString: string, language: string): string {
   return new Date(dateString).toLocaleDateString(language === "en" ? "en-US" : "de-DE", { year: "numeric", month: "long", day: "numeric" });
@@ -61,6 +84,10 @@ export default function NewsDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: newsArticleJsonLd(article) }}
+      />
       <main>
         <section
           className="relative py-20 md:py-32 bg-cover bg-center text-center"

@@ -1,8 +1,9 @@
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { imageFallback } from "~/lib/sampleAssets";
+import { buildMeta } from "~/lib/seo";
 
 // Public player card - the backend endpoint (GET /users/{username}/) is
 // unauthenticated by design, so it only ever returns public-safe fields
@@ -41,6 +42,24 @@ export const loader: LoaderFunction = async ({ params }) => {
     console.error(`Failed to fetch user profile for ${username}:`, error);
     return { user: null };
   }
+};
+
+export const meta: MetaFunction<typeof loader> = ({ data, params }) => {
+  const { user } = (data ?? {}) as { user: PublicUserProfile | null };
+  if (!user) {
+    return buildMeta({
+      title: "Profil nicht gefunden",
+      description: "Das gesuchte Nutzerprofil wurde nicht gefunden.",
+      path: `/profile/${params.username ?? ""}`,
+      noindex: true,
+    });
+  }
+  return buildMeta({
+    title: user.username,
+    description: `${user.username} bei Punishers Germany.`,
+    path: `/profile/${user.username}`,
+    image: user.profile_picture_url || undefined,
+  });
 };
 
 export default function ProfilePage() {

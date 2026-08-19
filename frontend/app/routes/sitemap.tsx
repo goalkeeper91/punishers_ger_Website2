@@ -47,9 +47,15 @@ export async function loader() {
   try {
     const teamsResponse = await fetch(`${API_BASE_URL}/teams/`);
     if (teamsResponse.ok) {
-      const teams: { id: number }[] = await teamsResponse.json();
+      // Player pages (/players/:id) are linked from each team's roster (see
+      // teams.$id.tsx), so their IDs are already sitting right here in each
+      // team's embedded `players` array - no extra request needed.
+      const teams: { id: number; players: { id: number }[] }[] = await teamsResponse.json();
       for (const team of teams) {
         entries.push(urlEntry(`/teams/${team.id}`, "weekly", "0.5"));
+        for (const player of team.players) {
+          entries.push(urlEntry(`/players/${player.id}`, "monthly", "0.4"));
+        }
       }
     }
   } catch (error) {

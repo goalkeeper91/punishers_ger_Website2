@@ -17,6 +17,12 @@ interface BuildMetaOptions {
   /** Use `title` verbatim as the <title> instead of appending " - Punishers
    * Germany" - only the homepage wants the bare brand name as its title. */
   brandTitle?: boolean;
+  /** "article" switches og:type and adds the Open Graph article: properties
+   * below - used by news.$slug.tsx. Everything else stays "website". */
+  type?: "website" | "article";
+  publishedTime?: string;
+  modifiedTime?: string;
+  author?: string;
 }
 
 // React Router's meta() return type - kept loose here since the exact
@@ -30,6 +36,10 @@ export function buildMeta({
   image = DEFAULT_IMAGE,
   noindex = false,
   brandTitle = false,
+  type = "website",
+  publishedTime,
+  modifiedTime,
+  author,
 }: BuildMetaOptions): MetaDescriptor[] {
   const url = `${SITE_URL}${path}`;
   const fullTitle = brandTitle ? title : `${title} - ${SITE_NAME}`;
@@ -39,7 +49,7 @@ export function buildMeta({
     { name: "description", content: description },
     { tagName: "link", rel: "canonical", href: url },
 
-    { property: "og:type", content: "website" },
+    { property: "og:type", content: type },
     { property: "og:site_name", content: SITE_NAME },
     { property: "og:title", content: fullTitle },
     { property: "og:description", content: description },
@@ -52,6 +62,12 @@ export function buildMeta({
     { name: "twitter:description", content: description },
     { name: "twitter:image", content: image },
   ];
+
+  if (type === "article") {
+    if (publishedTime) tags.push({ property: "article:published_time", content: publishedTime });
+    if (modifiedTime) tags.push({ property: "article:modified_time", content: modifiedTime });
+    if (author) tags.push({ property: "article:author", content: author });
+  }
 
   if (noindex) {
     tags.push({ name: "robots", content: "noindex, nofollow" });

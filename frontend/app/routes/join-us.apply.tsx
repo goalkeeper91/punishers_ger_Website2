@@ -1,9 +1,17 @@
-import type { ClientActionFunction } from "react-router";
+import type { ClientActionFunction, MetaFunction } from "react-router";
 import { Form, useActionData, useNavigation } from "react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
 import { extractErrorMessage } from "~/lib/errors";
+import { buildMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildMeta({
+    title: "Jetzt bewerben",
+    description: "Bewirb dich als Spieler bei Punishers Germany - wähle dein Spiel, gib deinen Rang an und werde Teil unserer Esport-Teams.",
+    path: "/join-us/apply",
+  });
 
 const GAMES = ["Counter-Strike 2", "Valorant", "League of Legends", "Rocket League", "Rainbow Six Siege"] as const;
 
