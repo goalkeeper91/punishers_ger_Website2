@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ClientLoaderFunction, ClientActionFunction } from "react-router";
 import { useLoaderData, useActionData, Form, redirect } from "react-router";
 import { authFetch, isLoggedIn } from "~/lib/auth";
@@ -99,6 +100,16 @@ export default function AdminCommunicationsPage() {
   };
   const actionData = useActionData() as { error?: string; success?: string } | undefined;
 
+  // Uncontrolled fields don't clear themselves after a successful submit
+  // (no navigation/remount happens, same route) - reset explicitly instead
+  // of leaving a just-sent email's content sitting in the compose box.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (actionData?.success) {
+      formRef.current?.reset();
+    }
+  }, [actionData]);
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
   };
@@ -122,7 +133,7 @@ export default function AdminCommunicationsPage() {
         <h2 className="text-2xl font-bold text-white mb-6">E-Mail versenden</h2>
 
         <div className="bg-gray-800 rounded-lg shadow-xl p-6 mb-8">
-          <Form method="post" className="space-y-4 max-w-xl">
+          <Form method="post" ref={formRef} className="space-y-4 max-w-xl">
             <div>
               <label className="block text-sm font-medium text-gray-300">Absender</label>
               <select
