@@ -199,6 +199,7 @@ INSTALLED_APPS = [
     'discord_bot',
     'social_media',
     'gameservers',
+    'communications',
 ]
 
 MIDDLEWARE = [

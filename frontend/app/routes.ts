@@ -44,5 +44,6 @@ export default [
   route("/admin/social-media", "routes/admin/social-media.tsx"), // Social Media Manager: embedded Vaultwarden credential vault
   route("/admin/gameservers", "routes/admin/gameservers.tsx"), // Admin/Teammanager: CS2 gameserver (Hetzner VPS) control
   route("/admin/praccs", "routes/admin/praccs.tsx"), // Admin/Teammanager: Pracc scheduling (game-scoped for Teammanagers)
+  route("/admin/communications", "routes/admin/communications.tsx"), // Admin: send free-text emails from info@/orga@/personal org addresses
   route("/admin/audit-log", "routes/admin/audit-log.tsx"), // Admin audit log (superuser-only)
 ] satisfies RouteConfig;

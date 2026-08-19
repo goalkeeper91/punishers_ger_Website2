@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from email.utils import parseaddr
 import hashlib
 import io
 import re
@@ -47,6 +48,8 @@ from social_media.models import SocialMediaVaultSettings
 from gameservers.models import HetznerVPS, Pracc, ServerConfig, ServerSlot
 from gameservers import redis_bridge as gameserver_redis_bridge
 from gameservers.listener import start_listener as start_gameserver_listener, stop_listener as stop_gameserver_listener
+from communications.models import EmailLog
+from communications.emails import send_free_text_email
 from faceit_integration import sync as faceit_sync
 from faceit_integration.client import FaceitClient, FaceitAPIError
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
@@ -63,6 +66,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email as django_validate_email
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db.models import F, Q
@@ -4199,6 +4203,7 @@ MANAGEABLE_PERMISSIONS: List[tuple[str, str, str]] = [
     ("discord_bot", "manage_discord_bot", "Discord-Bot verwalten"),
     ("social_media", "manage_social_media_vault", "Social-Media-Zugangsdaten verwalten (Vaultwarden)"),
     ("gameservers", "manage_gameservers", "CS2-Gameserver verwalten"),
+    ("communications", "send_email", "Freitext-E-Mails versenden (info@/orga@/persönliche Adresse)"),
 ]
 
 def _build_role_schema(group: Group) -> RoleSchema:
@@ -4345,6 +4350,140 @@ async def set_user_featured_creator(
         "CustomUser", user.id, user.username,
     )
     return await build_user_schema(user)
+
+# --- Admin: communications (free-text email via the org's own domain) ---
+
+# Fixed, curated role aliases - deliberately not user-editable (avoids
+# impersonation-adjacent typos like "info" vs "lnfo") - see the mail-proxy
+# discussion this was built from. Every admin additionally gets a "self"
+# option using their own username as the local part (e.g. an official
+# <nickname>@<domain> address instead of a personal Gmail), resolved
+# per-request rather than hardcoded since it depends on who's asking.
+EMAIL_ROLE_ALIASES: dict[str, str] = {
+    "info": "Info",
+    "orga": "Orga",
+}
+
+def _email_domain() -> str:
+    _, address = parseaddr(settings.DEFAULT_FROM_EMAIL)
+    return address.split("@")[-1] if "@" in address else "punishersgermany.de"
+
+def _resolve_sender(alias: str, current_admin: CustomUser) -> tuple[str, str]:
+    """Returns (from_address, from_display_name) for a sender alias, or
+    raises 400 if the alias isn't one of the allowed options."""
+    domain = _email_domain()
+    if alias == "self":
+        return f"{current_admin.username}@{domain}", current_admin.username
+    if alias in EMAIL_ROLE_ALIASES:
+        return f"{alias}@{domain}", f"Punishers Germany {EMAIL_ROLE_ALIASES[alias]}"
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültiger Absender.")
+
+def _parse_recipients(raw: str) -> List[str]:
+    recipients = [p.strip() for p in raw.split(",") if p.strip()]
+    if not recipients:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mindestens ein Empfänger erforderlich.")
+    invalid = []
+    for r in recipients:
+        try:
+            django_validate_email(r)
+        except DjangoValidationError:
+            invalid.append(r)
+    if invalid:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ungültige E-Mail-Adresse(n): {', '.join(invalid)}")
+    return recipients
+
+class EmailSenderOption(BaseModel):
+    value: str
+    address: str
+    label: str
+
+class SendEmailRequest(BaseModel):
+    from_alias: str
+    to: str = Field(..., min_length=1)
+    subject: str = Field(..., min_length=1, max_length=200)
+    body: str = Field(..., min_length=1)
+
+class EmailLogSchema(BaseModel):
+    id: int
+    from_alias: str
+    from_address: str
+    to: str
+    subject: str
+    sent_by_username: Optional[str] = None
+    success: bool
+    error_message: Optional[str] = None
+    created_at: str
+
+def build_email_log_schema(entry: EmailLog) -> EmailLogSchema:
+    return EmailLogSchema(
+        id=entry.id,
+        from_alias=entry.from_alias,
+        from_address=entry.from_address,
+        to=entry.to,
+        subject=entry.subject,
+        sent_by_username=entry.sent_by_username,
+        success=entry.success,
+        error_message=entry.error_message or None,
+        created_at=entry.created_at.isoformat(),
+    )
+
+@app.get("/admin/communications/senders/", response_model=List[EmailSenderOption])
+async def get_email_senders(current_admin: CustomUser = Depends(require_permission("communications.send_email"))):
+    domain = _email_domain()
+    options = [EmailSenderOption(value="self", address=f"{current_admin.username}@{domain}", label=f"{current_admin.username}@{domain} (persönlich)")]
+    for alias, label in EMAIL_ROLE_ALIASES.items():
+        options.append(EmailSenderOption(value=alias, address=f"{alias}@{domain}", label=f"{alias}@{domain} ({label})"))
+    return options
+
+@app.post("/admin/communications/send-email/", response_model=EmailLogSchema, status_code=status.HTTP_201_CREATED)
+async def send_email(
+    payload: SendEmailRequest,
+    current_admin: CustomUser = Depends(require_permission("communications.send_email")),
+):
+    from_address, from_display_name = _resolve_sender(payload.from_alias, current_admin)
+    recipients = _parse_recipients(payload.to)
+
+    def _record(success: bool, error_message: Optional[str]) -> EmailLog:
+        return EmailLog.objects.create(
+            from_alias=payload.from_alias,
+            from_address=from_address,
+            to=payload.to,
+            subject=payload.subject,
+            body=payload.body,
+            sent_by=current_admin,
+            sent_by_username=current_admin.username,
+            success=success,
+            error_message=error_message,
+        )
+
+    try:
+        await sync_to_async(send_free_text_email)(
+            from_address=from_address,
+            from_display_name=from_display_name,
+            to=recipients,
+            subject=payload.subject,
+            body=payload.body,
+            sender_username=current_admin.username,
+        )
+    except Exception as exc:
+        logger.exception("Freitext-E-Mail-Versand fehlgeschlagen (von %s an %s)", from_address, payload.to)
+        entry = await sync_to_async(_record)(False, str(exc))
+        await sync_to_async(_log_action)(current_admin, "send_email_failed", "EmailLog", entry.id, payload.subject, {"to": payload.to})
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"E-Mail-Versand fehlgeschlagen: {exc}")
+
+    entry = await sync_to_async(_record)(True, None)
+    await sync_to_async(_log_action)(current_admin, "send_email", "EmailLog", entry.id, payload.subject, {"to": payload.to, "from": from_address})
+    return build_email_log_schema(entry)
+
+@app.get("/admin/communications/log/", response_model=List[EmailLogSchema])
+async def get_email_log(
+    limit: int = 50,
+    current_admin: CustomUser = Depends(require_permission("communications.send_email")),
+):
+    def _collect():
+        return list(EmailLog.objects.order_by('-created_at')[:limit])
+    entries = await sync_to_async(_collect)()
+    return [build_email_log_schema(e) for e in entries]
 
 # --- Admin: audit log (read-only, superuser-only oversight) ---
 

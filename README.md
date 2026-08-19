@@ -100,6 +100,18 @@ Zwei getrennte Dinge, die beide manuell (außerhalb dieses Repos) eingerichtet w
 
 Beides ist unabhängig voneinander und beeinflusst sich nicht – Brevo verschickt nur, Cloudflare Email Routing empfängt nur.
 
+**Alternative zu Brevo: interner Mailrelay-Container.** Läuft auf dem Server bereits ein eigener SMTP-Relay-Container im selben Docker-Netzwerk wie `backend` (bei dieser Org: `mailrelay`/`goalkeeper_mailrelay_prod` im externen `goalkeeper_prod_network`, siehe `shared`-Network in `docker-compose.yml`), kann `EMAIL_HOST` stattdessen auf dessen Compose-Service-Namen zeigen – funktioniert per Docker-DNS ohne zusätzliche Ports. Läuft der Relay ohne SASL-Auth (Vertrauen rein über Quell-IP/`mynetworks`), bleiben `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` leer; auf der Postfix-Seite muss das tatsächliche Docker-Subnetz (nicht nur `127.0.0.0/8`) in `mynetworks` stehen, sonst `554 5.7.1 Relay access denied`. Ohne STARTTLS auf der Empfangsseite zusätzlich `EMAIL_USE_TLS=false` setzen, sonst schlägt Djangos SMTP-Handshake fehl:
+```
+EMAIL_HOST=mailrelay
+EMAIL_PORT=25
+EMAIL_USE_TLS=false
+DEFAULT_FROM_EMAIL=Punishers Germany <no-reply@punishersgermany.de>
+```
+
+### Freitext-E-Mails über das Dashboard (`backend/communications/`)
+
+`/admin/communications` (Permission `communications.send_email`, siehe oben) lässt eine offizielle E-Mail verschicken, ohne dass jemand seine private Adresse benutzen muss – z.B. um im Namen der Orga eine LAN-Party anzuschreiben. Absender ist eine feste, kuratierte Auswahl (`GET /admin/communications/senders/`): die Rollen-Aliase `info@`/`orga@<Domain>` plus automatisch `<eigener-benutzername>@<Domain>` für den gerade eingeloggten Admin – die Domain wird aus `DEFAULT_FROM_EMAIL` abgeleitet, nicht hartkodiert. Bewusst kein Freitext-Präfix, um Tippfehler/Verwechslungen bei der Absenderadresse auszuschließen. Empfänger sind ein einzelnes Freitext-Feld, mehrere Adressen kommagetrennt, serverseitig einzeln validiert. Jeder Versand landet in `communications.EmailLog` (Absender, Empfänger, Betreff, wer, wann, Erfolg/Fehlermeldung) und wird auf derselben Seite als Tabelle angezeigt – anders als bei den automatischen Transaktions-Mails (`users/emails.py`, `applications/emails.py`) wird ein Fehlschlag hier **nicht** stillschweigend nur geloggt, sondern direkt als Fehlermeldung an den Admin zurückgegeben, da der Versand selbst der ganze Zweck der Aktion ist. Antworten auf `info@`/`orga@`/persönliche Adressen laufen unabhängig davon über die eingehende Weiterleitung (Cloudflare Email Routing o.ä.) – das Dashboard kennt nur den ausgehenden Versand.
+
 ### Admin-Dashboard (Frontend `/admin/*`, erfordert mindestens eine passende Rolle/Permission)
 
 Welche Bereiche sichtbar sind, entscheidet `~/lib/adminNav.ts` (gemeinsam genutzt von `AdminNav` und der Profil-Sidebar) anhand von Rolle **und** den unten beschriebenen Permissions – nicht mehr pauschal "Admin oder eine feste Rolle".
@@ -112,6 +124,7 @@ Welche Bereiche sichtbar sind, entscheidet `~/lib/adminNav.ts` (gemeinsam genutz
 | Teams | `/admin/teams`, `/new`, `/:id/edit` | Team-CRUD, Teambild-Upload, Roster-Verwaltung | Anlegen/Löschen/alle Teams bearbeiten: Admin oder `teams.manage_teams`-Permission; Bearbeiten & Roster des **eigenen** Teams: zusätzlich Teammanager |
 | Spieler | `/admin/players/:id/edit` | Einzelnen Spieler bearbeiten, Spielerbild-Upload | Admin, `teams.manage_teams`, oder Teammanager des Teams, dem der Spieler angehört |
 | Sponsoren & Socials | `/admin/sponsors` | CRUD für Sponsoren und Social Links, inkl. Klick-Statistik | `sponsors.manage_sponsors`-Permission (oder Admin) |
+| E-Mail versenden | `/admin/communications` | Freitext-E-Mail über eine offizielle Absenderadresse verschicken (siehe unten), inkl. Sende-Log | `communications.send_email`-Permission (oder Admin) |
 | Audit-Log | `/admin/audit-log` | Wer hat wann was geändert | nur Admin |
 
 ### Rollenbasierte Rechte & echtes Berechtigungssystem
@@ -124,6 +137,7 @@ Rollen sind Django-Gruppen (`GET/POST /admin/roles/`, `PUT /admin/users/{id}/rol
 | `sponsors.manage_sponsors` | Sponsoren & Social Links verwalten |
 | `teams.manage_teams` | **Alle** Teams & Spieler verwalten (nicht nur ein einzelnes) |
 | `users.manage_users` | Nutzer aktivieren/deaktivieren |
+| `communications.send_email` | Freitext-E-Mails über das Dashboard versenden |
 
 - **Admin** (`is_superuser`) – uneingeschränkter Zugriff auf alles; besteht jeden `has_perm()`-Check automatisch (Djangos eigenes Verhalten, nicht extra nachgebaut). Admin-Status selbst wird über `PUT /admin/users/{id}/superuser/` vergeben/entzogen (nur durch bereits existierende Admins) – mit eingebauter Schutzsperre gegen versehentliche Selbst-Entmachtung (man kann sich selbst nicht die eigenen Admin-Rechte entziehen, das muss ein anderer Admin tun).
 - **Teammanager** (System-Rolle, `backend/users/models.py: ROLE_TEAM_MANAGER`) – darf weiterhin nur das über `CustomUser.team` zugewiesene *eigene* Team verwalten (Bearbeiten, Bild-Upload, Roster). Wer stattdessen **alle** Teams verwalten soll (z.B. ein "Head of Teams" ohne Admin-Status), bekommt die `teams.manage_teams`-Permission auf seiner Rolle – Team anlegen/löschen bleibt aber weiterhin entweder Admin oder `teams.manage_teams` vorbehalten, ein einfacher Teammanager kann sein eigenes Team nicht löschen.

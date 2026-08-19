@@ -1,0 +1,4 @@
+{{ body }}
+
+--
+Diese Nachricht wurde von {{ sender_username }} über das Punishers Germany Dashboard verschickt.
