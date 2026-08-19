@@ -186,50 +186,56 @@ export default function AdminCommunicationsPage() {
           </Form>
         </div>
 
-        <div className="overflow-x-auto bg-gray-800 rounded-lg shadow-xl p-6">
+        <div className="bg-gray-800 rounded-lg shadow-xl p-6">
           <h3 className="text-xl font-bold text-white mb-4">Zuletzt versendet</h3>
-          <table className="min-w-full divide-y divide-gray-700">
-            <thead className="bg-gray-700">
-              <tr>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Von</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">An</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Betreff</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Gesendet von</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Zeitpunkt</th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-700">
-              {log.map((entry) => (
-                <tr key={entry.id} className="hover:bg-gray-700">
-                  <td className="px-4 py-4 text-sm text-gray-200 whitespace-nowrap">{entry.from_address}</td>
-                  <td className="px-4 py-4 text-sm text-gray-200">{entry.to}</td>
-                  <td className="px-4 py-4 text-sm text-gray-200">{entry.subject}</td>
-                  <td className="px-4 py-4 text-sm text-gray-200 whitespace-nowrap">{entry.sent_by_username || "-"}</td>
-                  <td className="px-4 py-4 text-sm text-gray-200 whitespace-nowrap">{formatDate(entry.created_at)}</td>
-                  <td className="px-4 py-4 whitespace-nowrap text-sm">
-                    {entry.success ? (
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Gesendet</span>
-                    ) : (
-                      <span
-                        className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800"
-                        title={entry.error_message || undefined}
-                      >
-                        Fehlgeschlagen
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {log.length === 0 && (
+          {/* Header row stays pinned while scrolling - max-height tuned to
+              show exactly 15 data rows (header + 15 * row height) before a
+              16th row triggers the scrollbar, so the page itself doesn't
+              grow unbounded as the log fills up. */}
+          <div className="overflow-x-auto overflow-y-auto max-h-[851px]">
+            <table className="min-w-full divide-y divide-gray-700">
+              <thead className="bg-gray-700 sticky top-0 z-10">
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-400">
-                    Noch keine E-Mail versendet.
-                  </td>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Von</th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">An</th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Betreff</th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Gesendet von</th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Zeitpunkt</th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {log.map((entry) => (
+                  <tr key={entry.id} className="hover:bg-gray-700">
+                    <td className="px-4 py-4 text-sm text-gray-200 whitespace-nowrap">{entry.from_address}</td>
+                    <td className="px-4 py-4 text-sm text-gray-200">{entry.to}</td>
+                    <td className="px-4 py-4 text-sm text-gray-200">{entry.subject}</td>
+                    <td className="px-4 py-4 text-sm text-gray-200 whitespace-nowrap">{entry.sent_by_username || "-"}</td>
+                    <td className="px-4 py-4 text-sm text-gray-200 whitespace-nowrap">{formatDate(entry.created_at)}</td>
+                    <td className="px-4 py-4 whitespace-nowrap text-sm">
+                      {entry.success ? (
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Gesendet</span>
+                      ) : (
+                        <span
+                          className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800"
+                          title={entry.error_message || undefined}
+                        >
+                          Fehlgeschlagen
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {log.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-400">
+                      Noch keine E-Mail versendet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
