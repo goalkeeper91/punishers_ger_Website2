@@ -5,6 +5,7 @@ import hashlib
 import io
 import re
 import secrets
+import uuid
 
 import logging
 
@@ -27,7 +28,8 @@ django.setup()
 
 from news.models import NewsArticle, NewsArticleTranslation
 from news.translation import sync_translations_for_article, SUPPORTED_LANGUAGES as NEWS_SUPPORTED_LANGUAGES
-from teams.models import Team, Player
+from teams.models import Team, Player, TeamLeagueEntry
+from leagues.models import League
 from users.models import CustomUser, ROLE_TEAM_MANAGER, ROLE_AUTHOR
 from users.emails import send_account_activated_email, send_password_reset_email
 from sponsors.models import Sponsor, SocialLink
@@ -2819,6 +2821,215 @@ async def upload_player_image(
     await sync_to_async(player.save)(update_fields=['image'])
     await sync_to_async(_log_action)(current_user, "update", "Player", player.id, player.ingame_name, {"fields": ["image"]})
     return await build_player_schema(player)
+
+# --- Admin: manually-recorded matches ---
+#
+# TeamFaceitMatch rows are normally only ever created by the FACEIT sync
+# (faceit_integration/sync.py), which needs League.faceit_organizer_id and
+# TeamLeagueEntry.faceit_team_id configured first - both of which were only
+# ever settable via Django's classic admin (unreachable in this deployment,
+# same root cause as the Content Creator fields before this). This section
+# lets an admin/Teammanager record a real result by hand instead (e.g. a
+# scrim, or a match FACEIT never had) - synthesized with a "manual-<uuid>"
+# faceit_match_id (that field is required+unique) so the real FACEIT sync
+# never touches or gets confused by these rows.
+
+class LeagueOption(BaseModel):
+    id: int
+    name: str
+
+@app.get("/admin/leagues/", response_model=List[LeagueOption])
+async def get_leagues(current_user: CustomUser = Depends(require_team_management_access)):
+    leagues = await sync_to_async(list)(League.objects.all().order_by('name'))
+    return [LeagueOption(id=l.id, name=l.name) for l in leagues]
+
+class TeamMatchMapSchema(BaseModel):
+    id: int
+    map_name: Optional[str] = None
+    team_score: Optional[int] = None
+    opponent_score: Optional[int] = None
+    result: Optional[str] = None
+
+class TeamMatchSchema(BaseModel):
+    # id of the *first* map row in the series - what the frontend passes
+    # back to DELETE .../matches/{id}/, which then removes every row
+    # sharing that row's series_id (or just this one row if it has none).
+    id: int
+    league_id: int
+    league_name: str
+    opponent_name: Optional[str] = None
+    competition_name: Optional[str] = None
+    finished_at: Optional[str] = None
+    is_manual: bool
+    maps: List[TeamMatchMapSchema]
+    team_maps_won: int
+    opponent_maps_won: int
+
+def build_team_match_schema(maps: List[TeamFaceitMatch]) -> TeamMatchSchema:
+    """Builds one series card from a list of TeamFaceitMatch rows that all
+    share a series_id (or a list of exactly one row for a Bo1/legacy/synced
+    match, which never has a series_id)."""
+    first = maps[0]
+    return TeamMatchSchema(
+        id=first.id,
+        league_id=first.league_entry.league_id,
+        league_name=first.league_entry.league.name,
+        opponent_name=first.opponent_name,
+        competition_name=first.competition_name,
+        finished_at=first.finished_at.isoformat() if first.finished_at else None,
+        is_manual=first.faceit_match_id.startswith("manual-"),
+        maps=[
+            TeamMatchMapSchema(
+                id=m.id, map_name=m.map_name, team_score=m.team_score,
+                opponent_score=m.opponent_score, result=m.result,
+            )
+            for m in maps
+        ],
+        team_maps_won=sum(1 for m in maps if m.result == "win"),
+        opponent_maps_won=sum(1 for m in maps if m.result == "loss"),
+    )
+
+def _group_matches_into_series(matches: List[TeamFaceitMatch]) -> List[List[TeamFaceitMatch]]:
+    """Groups TeamFaceitMatch rows sharing a series_id together (in the
+    order their maps were recorded), and every row with no series_id
+    (real FACEIT-synced matches, and manual Bo1s) as its own single-item
+    group - then orders the groups by their most recent finished_at."""
+    groups: dict[object, List[TeamFaceitMatch]] = {}
+    order: List[object] = []
+    for m in matches:
+        key = m.series_id or ("solo", m.id)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(m)
+    series_list = [groups[key] for key in order]
+    series_list.sort(key=lambda g: g[0].finished_at or g[0].scheduled_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return series_list
+
+class ManualMatchMapEntry(BaseModel):
+    map_name: Optional[str] = Field(None, max_length=100)
+    team_score: int = Field(..., ge=0)
+    opponent_score: int = Field(..., ge=0)
+
+class ManualMatchCreate(BaseModel):
+    league_id: int
+    opponent_name: str = Field(..., min_length=1, max_length=200)
+    finished_at: datetime
+    competition_name: Optional[str] = Field(None, max_length=200)
+    maps: List[ManualMatchMapEntry] = Field(..., min_length=1, max_length=5)
+
+@app.get("/admin/teams/{team_id}/matches/", response_model=List[TeamMatchSchema])
+async def get_team_matches(team_id: int, current_user: CustomUser = Depends(require_team_management_access)):
+    try:
+        team = await sync_to_async(Team.objects.get)(id=team_id)
+    except Team.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    await ensure_team_access(current_user, team)
+
+    def _collect():
+        matches = list(
+            TeamFaceitMatch.objects.filter(league_entry__team=team)
+            .select_related('league_entry__league')
+            .order_by('-finished_at', '-scheduled_at')
+        )
+        return _group_matches_into_series(matches)
+    series_list = await sync_to_async(_collect)()
+    return [build_team_match_schema(series) for series in series_list]
+
+@app.post("/admin/teams/{team_id}/matches/", response_model=TeamMatchSchema, status_code=status.HTTP_201_CREATED)
+async def create_manual_match(
+    team_id: int,
+    payload: ManualMatchCreate,
+    current_user: CustomUser = Depends(require_team_management_access),
+):
+    try:
+        team = await sync_to_async(Team.objects.get)(id=team_id)
+    except Team.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    await ensure_team_access(current_user, team)
+
+    try:
+        league = await sync_to_async(League.objects.get)(id=payload.league_id)
+    except League.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Liga nicht gefunden")
+
+    def _create():
+        # get_or_create rather than requiring one to already exist - a team
+        # playing its first-ever manually recorded match (e.g. against
+        # "Pracc", seeded for exactly this) shouldn't need a separate setup
+        # step first.
+        league_entry, _ = TeamLeagueEntry.objects.get_or_create(team=team, league=league)
+        # A Bo1 (single map) never gets a series_id - it's already exactly
+        # one row, same shape as a FACEIT-synced match. Bo2/Bo3/Bo5 create
+        # one row per map, all sharing one series_id so they group back
+        # into a single series card (see _group_matches_into_series) while
+        # still counting individually for per-map team stats.
+        series_uuid = str(uuid.uuid4())
+        is_series = len(payload.maps) > 1
+        created_ids = []
+        for index, map_entry in enumerate(payload.maps, start=1):
+            if map_entry.team_score > map_entry.opponent_score:
+                map_result = "win"
+            elif map_entry.team_score < map_entry.opponent_score:
+                map_result = "loss"
+            else:
+                map_result = "draw"
+            match = TeamFaceitMatch.objects.create(
+                league_entry=league_entry,
+                faceit_match_id=f"manual-{series_uuid}-map{index}" if is_series else f"manual-{series_uuid}",
+                series_id=series_uuid if is_series else None,
+                competition_name=payload.competition_name or None,
+                status='finished',
+                finished_at=payload.finished_at,
+                opponent_name=payload.opponent_name,
+                team_score=map_entry.team_score,
+                opponent_score=map_entry.opponent_score,
+                result=map_result,
+                map_name=map_entry.map_name or None,
+            )
+            created_ids.append(match.id)
+        return list(
+            TeamFaceitMatch.objects.filter(id__in=created_ids)
+            .select_related('league_entry__league')
+            .order_by('id')
+        )
+
+    maps = await sync_to_async(_create)()
+    await sync_to_async(_log_action)(
+        current_user, "create", "TeamFaceitMatch", maps[0].id, f"{team.name} vs {payload.opponent_name}",
+        {"manual": True, "league": league.name, "maps": len(maps)},
+    )
+    return build_team_match_schema(maps)
+
+@app.delete("/admin/teams/{team_id}/matches/{match_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_team_match(
+    team_id: int,
+    match_id: int,
+    current_user: CustomUser = Depends(require_team_management_access),
+):
+    try:
+        team = await sync_to_async(Team.objects.get)(id=team_id)
+    except Team.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    await ensure_team_access(current_user, team)
+
+    try:
+        match = await sync_to_async(TeamFaceitMatch.objects.get)(id=match_id, league_entry__team=team)
+    except TeamFaceitMatch.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
+
+    match_label = f"{team.name} vs {match.opponent_name or '?'}"
+
+    def _delete():
+        # Delete every map row of the series, not just this one - a Bo3
+        # card in the UI represents (and must remove) all of its maps.
+        if match.series_id:
+            TeamFaceitMatch.objects.filter(series_id=match.series_id, league_entry__team=team).delete()
+        else:
+            match.delete()
+
+    await sync_to_async(_delete)()
+    await sync_to_async(_log_action)(current_user, "delete", "TeamFaceitMatch", match_id, match_label)
 
 @app.get("/users/{username}/", response_model=PublicUserSchema)
 async def get_user_profile(username: str):

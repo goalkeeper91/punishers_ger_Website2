@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ClientActionFunction, ClientLoaderFunction } from "react-router";
 import { Form, useActionData, useLoaderData, useNavigation, redirect } from "react-router";
 import { authFetch, isLoggedIn, hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "~/lib/auth";
@@ -30,6 +30,51 @@ interface AvailableUser {
   username: string;
 }
 
+interface LeagueOption {
+  id: number;
+  name: string;
+}
+
+interface TeamMatchMap {
+  id: number;
+  map_name: string | null;
+  team_score: number | null;
+  opponent_score: number | null;
+  result: string | null;
+}
+
+interface TeamMatch {
+  id: number;
+  league_id: number;
+  league_name: string;
+  opponent_name: string | null;
+  competition_name: string | null;
+  finished_at: string | null;
+  is_manual: boolean;
+  maps: TeamMatchMap[];
+  team_maps_won: number;
+  opponent_maps_won: number;
+}
+
+interface MatchMapDraft {
+  map_name: string;
+  team_score: string;
+  opponent_score: string;
+}
+
+const RESULT_LABELS: Record<string, string> = { win: "Sieg", loss: "Niederlage", draw: "Unentschieden" };
+
+const MATCH_FORMATS: { value: string; label: string; maps: number }[] = [
+  { value: "bo1", label: "1 Map (Bo1)", maps: 1 },
+  { value: "bo2", label: "2 Maps (Bo2)", maps: 2 },
+  { value: "bo3", label: "Bo3", maps: 3 },
+  { value: "bo5", label: "Bo5", maps: 5 },
+];
+
+function emptyMapDraft(): MatchMapDraft {
+  return { map_name: "", team_score: "", opponent_score: "" };
+}
+
 export const clientLoader: ClientLoaderFunction = async ({ params }) => {
   if (!isLoggedIn()) {
     throw redirect("/login");
@@ -59,7 +104,16 @@ export const clientLoader: ClientLoaderFunction = async ({ params }) => {
     availableUsers = await availableUsersResponse.json();
   }
 
-  return { team, availableUsers };
+  let leagues: LeagueOption[] = [];
+  let matches: TeamMatch[] = [];
+  const [leaguesResponse, matchesResponse] = await Promise.all([
+    authFetch("/admin/leagues/"),
+    authFetch(`/admin/teams/${params.id}/matches/`),
+  ]);
+  if (leaguesResponse.ok) leagues = await leaguesResponse.json();
+  if (matchesResponse.ok) matches = await matchesResponse.json();
+
+  return { team, availableUsers, leagues, matches };
 };
 
 export function HydrateFallback() {
@@ -157,6 +211,58 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
       return { success: "Spieler aus dem Roster entfernt." };
     }
 
+    if (intent === "addMatch") {
+      const leagueId = formData.get("league_id");
+      const opponentName = formData.get("opponent_name");
+      const finishedAt = formData.get("finished_at");
+      const mapsJson = formData.get("maps_json");
+      if (typeof leagueId !== "string" || !leagueId || typeof opponentName !== "string" || !opponentName.trim() || typeof finishedAt !== "string" || !finishedAt || typeof mapsJson !== "string") {
+        return { errors: { match: "Bitte Liga, Gegner, Datum und mindestens eine Map angeben." } };
+      }
+      let mapDrafts: MatchMapDraft[];
+      try {
+        mapDrafts = JSON.parse(mapsJson);
+      } catch {
+        return { errors: { match: "Ungültige Map-Daten." } };
+      }
+      const maps = mapDrafts
+        .filter((m) => m.team_score !== "" && m.opponent_score !== "")
+        .map((m) => ({ map_name: m.map_name.trim() || null, team_score: Number(m.team_score), opponent_score: Number(m.opponent_score) }));
+      if (maps.length === 0) {
+        return { errors: { match: "Bitte für mindestens eine Map beide Scores eintragen." } };
+      }
+      const competitionName = formData.get("competition_name");
+      const response = await authFetch(`/admin/teams/${params.id}/matches/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          league_id: Number(leagueId),
+          opponent_name: opponentName.trim(),
+          // A plain <input type="date"> gives "YYYY-MM-DD" with no time
+          // component - append midnight UTC so it parses as a real
+          // datetime instead of failing Pydantic's datetime validation.
+          finished_at: `${finishedAt}T00:00:00Z`,
+          competition_name: (competitionName as string)?.trim() || null,
+          maps,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        return { errors: { match: extractErrorMessage(data, "Match konnte nicht angelegt werden.") } };
+      }
+      return { success: "Match hinzugefügt." };
+    }
+
+    if (intent === "removeMatch") {
+      const matchId = formData.get("matchId");
+      const response = await authFetch(`/admin/teams/${params.id}/matches/${matchId}/`, { method: "DELETE" });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
+      }
+      return { success: "Match entfernt." };
+    }
+
     return { error: "Unbekannte Aktion." };
   } catch (error: any) {
     console.error("Team edit action failed:", error);
@@ -164,8 +270,146 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
   }
 };
 
+const matchInputClass = "block w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded-md text-white text-sm focus:outline-none focus:ring-red-500 focus:border-red-500";
+
+/** Bo1/Bo2/Bo3/Bo5 - picking a format pre-fills that many empty map rows,
+ * but the admin can still add/remove rows freely afterward (e.g. a Bo3
+ * that ended 2:0 only ever had 2 maps actually played). Map scores are
+ * serialized into one hidden JSON field on submit, same pattern as
+ * VoiceTriggersEditor/ReactionRolesEditor in admin/discord.tsx - the
+ * per-map win/loss (and the overall X:Y maps-won tally) is derived
+ * server-side from these two numbers, not entered separately. */
+function AddMatchForm({ leagues, isSubmitting, success, error }: { leagues: LeagueOption[]; isSubmitting: boolean; success?: string; error?: string }) {
+  const [format, setFormat] = useState("bo1");
+  const [maps, setMaps] = useState<MatchMapDraft[]>([emptyMapDraft()]);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const applyFormat = (value: string) => {
+    setFormat(value);
+    const count = MATCH_FORMATS.find((f) => f.value === value)?.maps ?? 1;
+    setMaps(Array.from({ length: count }, emptyMapDraft));
+  };
+
+  const updateMap = (index: number, patch: Partial<MatchMapDraft>) => {
+    setMaps((prev) => prev.map((m, i) => (i === index ? { ...m, ...patch } : m)));
+  };
+
+  // Unlike the other forms on this page, the map rows are controlled state
+  // (needed for the dynamic add/remove-map UI), so formRef.reset() alone
+  // wouldn't clear them - and other forms on this same page (roster, team
+  // details) also set `success`, so only reset on this form's own message,
+  // not every unrelated submission elsewhere on the page.
+  useEffect(() => {
+    if (success === "Match hinzugefügt.") {
+      formRef.current?.reset();
+      setFormat("bo1");
+      setMaps([emptyMapDraft()]);
+    }
+  }, [success]);
+
+  return (
+    <Form method="post" ref={formRef} className="space-y-4">
+      <input type="hidden" name="_intent" value="addMatch" />
+      <input type="hidden" name="maps_json" value={JSON.stringify(maps)} />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+        <div>
+          <label htmlFor="league_id" className="block text-sm font-medium text-gray-300 mb-1">Liga <span className="text-red-500">*</span></label>
+          <select id="league_id" name="league_id" required defaultValue="" className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm">
+            <option value="" disabled>Bitte wählen...</option>
+            {leagues.map((league) => (
+              <option key={league.id} value={league.id}>{league.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="opponent_name" className="block text-sm font-medium text-gray-300 mb-1">Gegner <span className="text-red-500">*</span></label>
+          <input type="text" id="opponent_name" name="opponent_name" required className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
+        </div>
+        <div>
+          <label htmlFor="finished_at" className="block text-sm font-medium text-gray-300 mb-1">Datum <span className="text-red-500">*</span></label>
+          <input type="date" id="finished_at" name="finished_at" required className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
+        </div>
+        <div>
+          <label htmlFor="format" className="block text-sm font-medium text-gray-300 mb-1">Format</label>
+          <select id="format" value={format} onChange={(e) => applyFormat(e.target.value)} className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm">
+            {MATCH_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="md:col-span-2">
+          <label htmlFor="competition_name" className="block text-sm font-medium text-gray-300 mb-1">Wettbewerb/Notiz</label>
+          <input type="text" id="competition_name" name="competition_name" placeholder="z.B. Scrim, Community-Cup" className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-300">Maps <span className="text-red-500">*</span></label>
+        {maps.map((map, index) => (
+          <div key={index} className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center bg-gray-900/40 rounded-md p-3">
+            <input
+              type="text"
+              placeholder={`Map ${index + 1} (z.B. de_mirage)`}
+              value={map.map_name}
+              onChange={(e) => updateMap(index, { map_name: e.target.value })}
+              className={matchInputClass}
+            />
+            <input
+              type="number"
+              min={0}
+              placeholder="Eigener Score"
+              value={map.team_score}
+              onChange={(e) => updateMap(index, { team_score: e.target.value })}
+              className={matchInputClass}
+            />
+            <input
+              type="number"
+              min={0}
+              placeholder="Gegner Score"
+              value={map.opponent_score}
+              onChange={(e) => updateMap(index, { opponent_score: e.target.value })}
+              className={matchInputClass}
+            />
+            <button
+              type="button"
+              onClick={() => setMaps((prev) => prev.filter((_, i) => i !== index))}
+              disabled={maps.length === 1}
+              className="text-red-400 text-xs hover:text-red-300 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Map entfernen
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => setMaps((prev) => [...prev, emptyMapDraft()])}
+          className="py-1 px-3 rounded-md text-white text-xs font-semibold bg-gray-600 hover:bg-gray-500"
+        >
+          + Map hinzufügen
+        </button>
+        <p className="text-xs text-gray-500">
+          Bei einer Serie endete nicht jede Map (z.B. Bo3 mit 2:0) - Map-Zeilen ohne beide Scores werden beim Speichern einfach ignoriert.
+        </p>
+      </div>
+
+      {error && <p className="text-sm text-red-500">{error}</p>}
+      <div>
+        <button type="submit" disabled={isSubmitting || leagues.length === 0} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+          Match hinzufügen
+        </button>
+        {leagues.length === 0 && <p className="mt-1 text-xs text-gray-500">Keine Liga verfügbar.</p>}
+      </div>
+    </Form>
+  );
+}
+
 export default function AdminTeamEditPage() {
-  const { team, availableUsers } = useLoaderData() as { team: Team; availableUsers: AvailableUser[] };
+  const { team, availableUsers, leagues, matches } = useLoaderData() as {
+    team: Team;
+    availableUsers: AvailableUser[];
+    leagues: LeagueOption[];
+    matches: TeamMatch[];
+  };
   const actionData = useActionData() as
     | { error?: string; success?: string; errors?: { [key: string]: string } }
     | undefined;
@@ -332,6 +576,66 @@ export default function AdminTeamEditPage() {
               </button>
             </div>
           </Form>
+        </div>
+
+        {/* Matches */}
+        <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
+          <h2 className="text-2xl font-bold text-white mb-6">Matches</h2>
+          <ul className="divide-y divide-gray-700 mb-6">
+            {matches.map((match) => (
+              <li key={match.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-white font-medium break-words">
+                    vs. {match.opponent_name || "?"}
+                    {match.maps.length > 1 && ` (${match.team_maps_won}:${match.opponent_maps_won})`}
+                    {match.maps.length === 1 && match.maps[0].team_score != null && match.maps[0].opponent_score != null && ` (${match.maps[0].team_score}:${match.maps[0].opponent_score})`}
+                    {match.maps.length === 1 && match.maps[0].result && (
+                      <span className={`ml-2 text-xs font-semibold ${match.maps[0].result === "win" ? "text-green-400" : match.maps[0].result === "loss" ? "text-red-400" : "text-gray-400"}`}>
+                        {RESULT_LABELS[match.maps[0].result!] || match.maps[0].result}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-gray-500 text-xs">
+                    {match.league_name}
+                    {match.finished_at && ` · ${new Date(match.finished_at).toLocaleDateString("de-DE")}`}
+                    {match.is_manual && " · manuell erfasst"}
+                  </p>
+                  {match.maps.length > 1 && (
+                    <ul className="mt-1 space-y-0.5">
+                      {match.maps.map((m, i) => (
+                        <li key={m.id} className="text-gray-500 text-xs">
+                          Map {i + 1}{m.map_name && ` (${m.map_name})`}: {m.team_score ?? "?"}:{m.opponent_score ?? "?"}
+                          {m.result && (
+                            <span className={`ml-1 font-semibold ${m.result === "win" ? "text-green-400" : m.result === "loss" ? "text-red-400" : "text-gray-400"}`}>
+                              {RESULT_LABELS[m.result] || m.result}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <Form
+                  method="post"
+                  onSubmit={(event) => {
+                    if (!confirm(`Match gegen ${match.opponent_name || "?"} wirklich entfernen?`)) {
+                      event.preventDefault();
+                    }
+                  }}
+                >
+                  <input type="hidden" name="_intent" value="removeMatch" />
+                  <input type="hidden" name="matchId" value={match.id} />
+                  <button type="submit" className="py-2 px-4 rounded-md text-white text-xs font-semibold bg-red-600 hover:bg-red-700">
+                    Entfernen
+                  </button>
+                </Form>
+              </li>
+            ))}
+            {matches.length === 0 && <li className="py-3 text-sm text-gray-400">Noch keine Matches erfasst.</li>}
+          </ul>
+
+          <h3 className="text-lg font-bold text-white mb-4">Match hinzufügen</h3>
+          <AddMatchForm leagues={leagues} isSubmitting={isSubmitting} success={actionData?.success} error={actionData?.errors?.match} />
         </div>
 
         <div className="mt-6">

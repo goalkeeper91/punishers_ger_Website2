@@ -50,6 +50,13 @@ class TeamFaceitMatch(models.Model):
         'teams.TeamLeagueEntry', on_delete=models.CASCADE, related_name='matches'
     )
     faceit_match_id = models.CharField(max_length=64, unique=True)
+    # Groups the individual map rows of one manually-recorded Bo2/Bo3/Bo5
+    # series together (one TeamFaceitMatch row per map, see
+    # fastapi_app/main.py create_manual_match) - null for every row synced
+    # from FACEIT and for a manual Bo1, since those are already exactly one
+    # row. NOT a FK to itself - just a shared opaque grouping value, cheaper
+    # than a real parent/child relation for something this simple.
+    series_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     competition_name = models.CharField(max_length=200, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='upcoming')
     scheduled_at = models.DateTimeField(blank=True, null=True)
