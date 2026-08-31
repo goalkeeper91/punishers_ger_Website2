@@ -171,8 +171,15 @@ def _get_league_championships(league: League, client: FaceitClient, game_id: Opt
 
 
 def _get_championship_matches(championship_id: str, client: FaceitClient) -> list[dict]:
+    """Fetches every match_type FACEIT's championship-matches endpoint
+    supports (see FaceitClient.get_championship_matches) - "upcoming" alone
+    is not enough: FACEIT moves a match into "ongoing" once it's checked
+    in/ready, well before it actually starts, so a match scheduled for
+    later today can already have left the "upcoming" bucket without being
+    "past" yet either. Missing "ongoing" here meant such matches were never
+    fetched at all, not even as a stale/wrong status - just absent."""
     matches: list[dict] = []
-    for match_type in ("upcoming", "past"):
+    for match_type in ("upcoming", "ongoing", "past"):
         offset = 0
         for _ in range(MAX_MATCH_PAGES):
             page = client.get_championship_matches(championship_id, match_type=match_type, offset=offset, limit=50)
@@ -594,13 +601,17 @@ def sync_single_player(player: Player) -> dict:
 # Top-level entry point
 # =====================================================================
 
-def sync_all(trigger: str = "manual") -> dict:
-    """Sync every player with a faceit_player_id, and every league with a
-    faceit_organizer_id (matches for all of that league's teams with a
-    faceit_team_id set). Records a FaceitSyncRun either way so the admin
-    dashboard can show when the last run happened."""
-    run = FaceitSyncRun.objects.create(trigger=trigger)
-
+def _run_sync(run: FaceitSyncRun) -> dict:
+    """Does the actual sync work for an already-created FaceitSyncRun row,
+    filling it in and saving it in place. Split out of sync_all() so the
+    async admin-trigger path (fastapi_app/main.py trigger_faceit_sync) can
+    create the run row synchronously - to return its id to the caller
+    immediately - and then run this part in a FastAPI BackgroundTask.
+    Fetching every championship/match for an organizer with a long history
+    can easily take well past a reverse proxy's request timeout (confirmed
+    live: nginx's ~60s default), which used to make the manual-trigger
+    endpoint return a 504 even though the sync itself kept running
+    successfully server-side regardless."""
     try:
         client = FaceitClient()
     except FaceitAPIError as exc:
@@ -629,3 +640,27 @@ def sync_all(trigger: str = "manual") -> dict:
     run.save()
 
     return {**player_summary, **match_summary, **match_stats_summary, **solo_summary, "run_id": run.id}
+
+
+def sync_all(trigger: str = "manual") -> dict:
+    """Sync every player with a faceit_player_id, and every league with a
+    faceit_organizer_id (matches for all of that league's teams with a
+    faceit_team_id set). Records a FaceitSyncRun either way so the admin
+    dashboard can show when the last run happened. Runs synchronously to
+    completion - fine for the scheduler (already in its own background
+    thread, no HTTP timeout involved, see scheduler.py) and for
+    `manage.py sync_faceit`. The admin-dashboard manual trigger uses
+    run_sync_for_existing_run() below instead, in a background task."""
+    run = FaceitSyncRun.objects.create(trigger=trigger)
+    return _run_sync(run)
+
+
+def run_sync_for_existing_run(run_id: int) -> None:
+    """Entry point for the async admin-trigger background task
+    (fastapi_app/main.py trigger_faceit_sync) - the FaceitSyncRun row
+    already exists (created synchronously so its id could be returned to
+    the caller right away), this just does the actual work and fills it
+    in. Return value is discarded, same as any FastAPI BackgroundTask -
+    GET /admin/faceit/status/ is how the caller finds out the result."""
+    run = FaceitSyncRun.objects.get(id=run_id)
+    _run_sync(run)

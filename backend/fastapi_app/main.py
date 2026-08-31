@@ -2448,8 +2448,15 @@ async def get_match_highlights():
         highlights: List[MatchHighlight] = []
         for team in teams:
             next_match = (
+                # Includes 'ongoing' alongside 'upcoming': FACEIT moves a
+                # match into its "ongoing" bucket (mapped to our 'ongoing'
+                # by _map_match_status) once it's checked in/in map-veto,
+                # well before it actually starts - from a visitor's
+                # perspective that's still "the next match", not a
+                # currently-live one, and it must not vanish from the
+                # widget between "scheduled" and "finished".
                 TeamFaceitMatch.objects.filter(
-                    status='upcoming', scheduled_at__isnull=False, league_entry__team=team,
+                    status__in=['upcoming', 'ongoing'], scheduled_at__isnull=False, league_entry__team=team,
                 )
                 .select_related('league_entry__team')
                 .order_by('scheduled_at')
@@ -4932,17 +4939,6 @@ async def get_dashboard_stats(
 
 # --- Admin: FACEIT sync (manual trigger + status) ---
 
-class FaceitSyncResult(BaseModel):
-    players_synced: int = 0
-    players_failed: int = 0
-    matches_created: int = 0
-    matches_updated: int = 0
-    league_entries_failed: int = 0
-    player_match_stats_synced: int = 0
-    player_match_stats_failed: int = 0
-    error: Optional[str] = None
-    run_id: Optional[int] = None
-
 class FaceitSyncRunSchema(BaseModel):
     id: int
     trigger: str
@@ -4956,15 +4952,29 @@ class FaceitSyncRunSchema(BaseModel):
     player_match_stats_failed: int
     error: Optional[str] = None
 
-@app.post("/admin/faceit/sync/", response_model=FaceitSyncResult)
-async def trigger_faceit_sync(current_admin: CustomUser = Depends(get_current_admin_user)):
-    """Manually kick off a full FACEIT sync (all players + all team/league
-    entries with FACEIT IDs set). Runs synchronously and returns a summary -
+class FaceitSyncTriggerResult(BaseModel):
+    started: bool
+    run_id: int
+
+@app.post("/admin/faceit/sync/", response_model=FaceitSyncTriggerResult, status_code=status.HTTP_202_ACCEPTED)
+async def trigger_faceit_sync(
+    background_tasks: BackgroundTasks,
+    current_admin: CustomUser = Depends(get_current_admin_user),
+):
+    """Kicks off a full FACEIT sync (all players + all team/league entries
+    with FACEIT IDs set) in the background and returns immediately - a
+    synchronous call here used to return a 504 to the caller once an
+    organizer had enough championship/match history to sync (confirmed
+    live), even though the sync itself kept running and completing fine
+    server-side regardless. Poll GET /admin/faceit/status/ for the result;
     for the automatic path see faceit_integration/scheduler.py, and for a
     CLI/cron path see `python manage.py sync_faceit`."""
-    summary = await sync_to_async(faceit_sync.sync_all)(trigger="manual")
-    await sync_to_async(_log_action)(current_admin, "trigger", "FaceitSync", None, None, summary)
-    return FaceitSyncResult(**summary)
+    def _create_run():
+        return FaceitSyncRun.objects.create(trigger="manual")
+    run = await sync_to_async(_create_run)()
+    background_tasks.add_task(faceit_sync.run_sync_for_existing_run, run.id)
+    await sync_to_async(_log_action)(current_admin, "trigger", "FaceitSync", run.id, None, {"async": True})
+    return FaceitSyncTriggerResult(started=True, run_id=run.id)
 
 @app.get("/admin/faceit/status/", response_model=Optional[FaceitSyncRunSchema])
 async def get_faceit_sync_status(current_admin: CustomUser = Depends(get_current_admin_user)):
