@@ -26,18 +26,17 @@ from .models import FaceitSyncRun, PlayerFaceitStats, TeamFaceitMatch, PlayerFac
 logger = logging.getLogger(__name__)
 
 MAX_MATCH_PAGES = 10  # safety cap: 10 * 50 = 500 matches per type per championship
-# safety cap: 60 * 50 = 3000 championships/organizer. Deliberately generous -
-# GET /organizers/{id}/championships is not reliably ordered by recency (an
-# organizer running many parallel divisions/cups can have a brand-new,
-# already-started championship show up anywhere in the list), so a low cap
-# here risks silently never reaching a real, current championship at all -
-# confirmed live: a same-season match was missing entirely, not just
-# mis-synced, because its championship sat past the old cap of 250. A high
-# API-call cost here is an acceptable tradeoff since the manual admin
-# trigger is async (see trigger_faceit_sync in fastapi_app/main.py) and the
-# scheduled sync already runs in its own background thread either way -
-# neither is blocked by how long this takes.
-MAX_CHAMPIONSHIP_PAGES = 60
+CHAMPIONSHIP_PAGE_SIZE = 100  # the endpoint's own documented max (swagger: limit <= 100)
+# safety cap: 20 * 100 = 2000 championships/organizer. GET /organizers/{id}/
+# championships is fetched newest-first (see FaceitClient.
+# get_organizer_championships's `sort=-createdAt` default) specifically so a
+# real, generous-but-finite cap here reliably still reaches any current
+# championship - confirmed live that *without* an explicit sort, a same-
+# season match was missing entirely (not just mis-synced), because its
+# championship happened to sit past the pagination cap in an unordered
+# result set. With newest-first this is now just a depth-of-history limit,
+# not a correctness risk.
+MAX_CHAMPIONSHIP_PAGES = 20
 MAX_MATCH_STATS_PER_RUN = 30  # safety cap: detailed match-stats calls are one HTTP request each
 
 
@@ -167,25 +166,27 @@ def sync_all_players(client: FaceitClient, game_id: Optional[str] = None) -> dic
 # =====================================================================
 
 def _get_league_championships(league: League, client: FaceitClient, game_id: Optional[str] = None) -> list[dict]:
-    """All championships (seasons) a league's FACEIT organizer has run."""
+    """All championships (seasons) a league's FACEIT organizer has run,
+    newest-first (see get_organizer_championships) - so if the pagination
+    cap is ever hit, it's the *oldest* championships being cut off, not a
+    potentially-current one."""
     game_id = game_id or settings.FACEIT_DEFAULT_GAME_ID
     championships: list[dict] = []
     offset = 0
     hit_cap = True
     for _ in range(MAX_CHAMPIONSHIP_PAGES):
-        page = client.get_organizer_championships(league.faceit_organizer_id, game_id=game_id, offset=offset, limit=50)
+        page = client.get_organizer_championships(
+            league.faceit_organizer_id, game_id=game_id, offset=offset, limit=CHAMPIONSHIP_PAGE_SIZE,
+        )
         items = page.get("items", [])
         championships.extend(items)
-        if len(items) < 50:
+        if len(items) < CHAMPIONSHIP_PAGE_SIZE:
             hit_cap = False
             break
-        offset += 50
+        offset += CHAMPIONSHIP_PAGE_SIZE
     if hit_cap:
-        # The API isn't reliably ordered by recency, so this isn't just
-        # "the oldest N got skipped" - any not-yet-fetched championship,
-        # including a brand-new one, could be silently missing matches.
         logger.warning(
-            "Liga '%s': MAX_CHAMPIONSHIP_PAGES (%s) erreicht, evtl. nicht alle Championships des Organizers erfasst.",
+            "Liga '%s': MAX_CHAMPIONSHIP_PAGES (%s) erreicht, älteste Championships des Organizers evtl. nicht erfasst.",
             league.name, MAX_CHAMPIONSHIP_PAGES,
         )
     return championships

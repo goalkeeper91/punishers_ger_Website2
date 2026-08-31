@@ -95,11 +95,19 @@ class FaceitClient:
     # --- Organizers / championships / matches ---
 
     def get_organizer_championships(
-        self, organizer_id: str, game_id: Optional[str] = None, offset: int = 0, limit: int = 50
+        self, organizer_id: str, game_id: Optional[str] = None, offset: int = 0, limit: int = 50,
+        sort: str = "-createdAt",
     ) -> dict[str, Any]:
         """GET /organizers/{organizer_id}/championships - all championships
-        (seasons) run by this organizer, e.g. every "DACH CS Season N"."""
-        params: dict[str, Any] = {"offset": offset, "limit": limit}
+        (seasons) run by this organizer, e.g. every "DACH CS Season N".
+        Defaults to newest-first (per the endpoint's swagger spec, `sort`
+        accepts "+createdAt"/"-createdAt") - confirmed live that without an
+        explicit sort, results aren't reliably ordered by recency at all,
+        so an organizer running many parallel divisions/cups could bury an
+        already-started, current championship anywhere in the list. With
+        newest-first, a real pagination cap (see sync.py
+        MAX_CHAMPIONSHIP_PAGES) reliably still reaches anything current."""
+        params: dict[str, Any] = {"offset": offset, "limit": limit, "sort": sort}
         if game_id:
             params["game_id"] = game_id
         return self._get(f"/organizers/{organizer_id}/championships", params=params)
