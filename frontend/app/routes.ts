@@ -46,5 +46,6 @@ export default [
   route("/admin/gameservers", "routes/admin/gameservers.tsx"), // Admin/Teammanager: CS2 gameserver (Hetzner VPS) control
   route("/admin/praccs", "routes/admin/praccs.tsx"), // Admin/Teammanager: Pracc scheduling (game-scoped for Teammanagers)
   route("/admin/communications", "routes/admin/communications.tsx"), // Admin: send free-text emails from info@/orga@/personal org addresses
+  route("/admin/social-posts", "routes/admin/social-posts.tsx"), // Admin: auto-generated match announcement/result posts for Facebook/Instagram/X
   route("/admin/audit-log", "routes/admin/audit-log.tsx"), // Admin audit log (superuser-only)
 ] satisfies RouteConfig;

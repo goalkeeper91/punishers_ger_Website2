@@ -114,6 +114,16 @@ FACEIT_DEFAULT_GAME_ID = os.environ.get("FACEIT_DEFAULT_GAME_ID", "cs2")
 # the background scheduler entirely (e.g. if you only want cron/manual runs).
 FACEIT_SYNC_INTERVAL_MINUTES = int(os.environ.get("FACEIT_SYNC_INTERVAL_MINUTES", "180"))
 
+# Self-hosted Ollama (see social_posts/ollama_client.py) - generates
+# platform-specific social-media post text for match announcements/results.
+# No API key: reaches the org's own Ollama container over the internal
+# Docker network (e.g. OLLAMA_BASE_URL=http://goalkeeper_ollama_prod:11434),
+# not a paid external API. Left empty -> text generation is skipped
+# gracefully (the image still gets generated), same fallback convention as
+# the other optional integrations in this file.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL") or None
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1")
+
 # Twitch Helix API (see twitch_integration/client.py) - app registered at
 # https://dev.twitch.tv/console. Used only for public live-stream status of
 # our own registered content creators, no user-specific scopes needed.
@@ -200,6 +210,7 @@ INSTALLED_APPS = [
     'social_media',
     'gameservers',
     'communications',
+    'social_posts',
 ]
 
 MIDDLEWARE = [

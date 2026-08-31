@@ -244,6 +244,56 @@ def _announce_match_result(match: TeamFaceitMatch) -> None:
         )
 
 
+def _generate_social_post_draft(match: TeamFaceitMatch, post_type: str) -> None:
+    """Best-effort: a failed post-draft generation must never break the
+    actual match sync. Local import for the same reason as
+    _announce_match_result above - social_posts isn't needed anywhere else
+    in this module.
+
+    team_maps_won/opponent_maps_won come straight from match.team_score/
+    match.opponent_score - i.e. results.score, as returned by FACEIT for
+    this match_id (see sync_league_matches). For a multi-map league fixture
+    (e.g. this org's real Bo3s) that field is already the SERIES score
+    (maps won, e.g. 2:1), not a single map's round score - a match_id
+    covers the whole series, individual per-map round scores only exist in
+    the separate /matches/{id}/stats response. Previously this hardcoded
+    1:0/0:1 (i.e. assumed every fixture was a Bo1), which was wrong for any
+    real multi-map series. No structured per-map breakdown (MatchContext.
+    maps / the image's maps-played row) is built here yet - only the
+    manual-match-entry path populates that today, see fastapi_app/main.py
+    create_manual_match."""
+    from social_posts.generation import generate_draft
+
+    team_maps_won = opponent_maps_won = None
+    if post_type == "result":
+        team_maps_won, opponent_maps_won = match.team_score, match.opponent_score
+    maps_summary = None
+    if match.map_name and match.team_score is not None and match.opponent_score is not None:
+        maps_summary = f"{match.map_name} {match.team_score}:{match.opponent_score}"
+
+    # The opponent's FACEIT team avatar, for the image template's matchup
+    # badges (see social_posts/image_generation.py) - re-derived from the
+    # full match payload already stored in raw_data rather than needing a
+    # dedicated field, since it's only ever used at draft-generation time.
+    opponent_logo_url = None
+    if match.raw_data:
+        our_key = _extract_our_faction_key(match.raw_data, match.league_entry.faceit_team_id)
+        if our_key:
+            opponent_key = "faction2" if our_key == "faction1" else "faction1"
+            opponent_logo_url = ((match.raw_data.get("teams") or {}).get(opponent_key) or {}).get("avatar") or None
+
+    try:
+        generate_draft(
+            team=match.league_entry.team, post_type=post_type,
+            opponent_name=match.opponent_name or "TBD", competition_name=match.competition_name,
+            match_datetime=match.finished_at if post_type == "result" else match.scheduled_at,
+            team_maps_won=team_maps_won, opponent_maps_won=opponent_maps_won, maps_summary=maps_summary,
+            opponent_logo_url=opponent_logo_url,
+        )
+    except Exception:
+        logger.exception("Social-Post-Entwurf-Generierung fehlgeschlagen für Match %s", match.faceit_match_id)
+
+
 def sync_league_matches(league: League, client: FaceitClient) -> dict:
     """Fetch every season (championship) run by this league's FACEIT
     organizer, then match each championship's games against all of our teams
@@ -320,11 +370,19 @@ def sync_league_matches(league: League, client: FaceitClient) -> dict:
             )
             if was_created:
                 created += 1
+                if match_obj.status in ("upcoming", "ongoing"):
+                    # A newly-discovered not-yet-decided match - draft the
+                    # announcement post now, not on every later re-sync
+                    # while it's still upcoming (was_created is only True
+                    # once, unlike the previous_result check below which
+                    # would otherwise need its own "already drafted" guard).
+                    _generate_social_post_draft(match_obj, "announcement")
             else:
                 updated += 1
 
             if previous_result is None and match_obj.result is not None:
                 _announce_match_result(match_obj)
+                _generate_social_post_draft(match_obj, "result")
             break  # found the entry this match belongs to, no need to check the rest
 
     return {"created": created, "updated": updated}

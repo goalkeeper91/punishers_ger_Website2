@@ -64,6 +64,12 @@ services:
       FACEIT_API_KEY: ${FACEIT_API_KEY:-}
       FACEIT_DEFAULT_GAME_ID: ${FACEIT_DEFAULT_GAME_ID:-cs2}
       FACEIT_SYNC_INTERVAL_MINUTES: ${FACEIT_SYNC_INTERVAL_MINUTES:-180}
+      # Self-hosted Ollama (social_posts app) - reachable here the same way
+      # as the Discord bot's `redis` below: another container joining the
+      # same `goalkeeper_prod_network` (the `shared` network), no extra
+      # networking needed on this side.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
       TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
       TWITCH_LIVE_POLL_INTERVAL_MINUTES: ${TWITCH_LIVE_POLL_INTERVAL_MINUTES:-5}

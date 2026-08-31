@@ -52,6 +52,8 @@ from gameservers import redis_bridge as gameserver_redis_bridge
 from gameservers.listener import start_listener as start_gameserver_listener, stop_listener as stop_gameserver_listener
 from communications.models import EmailLog
 from communications.emails import send_free_text_email
+from social_posts.models import SocialPostDraft
+from social_posts import generation as social_post_generation
 from faceit_integration import sync as faceit_sync
 from faceit_integration.client import FaceitClient, FaceitAPIError
 from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
@@ -3093,6 +3095,7 @@ async def get_team_matches(team_id: int, current_user: CustomUser = Depends(requ
 async def create_manual_match(
     team_id: int,
     payload: ManualMatchCreate,
+    background_tasks: BackgroundTasks,
     current_user: CustomUser = Depends(require_team_management_access),
 ):
     try:
@@ -3151,6 +3154,30 @@ async def create_manual_match(
     await sync_to_async(_log_action)(
         current_user, "create", "TeamFaceitMatch", maps[0].id, f"{team.name} vs {payload.opponent_name}",
         {"manual": True, "league": league.name, "maps": len(maps)},
+    )
+    # Backgrounded, same reasoning as the FACEIT-sync hook (LLM + image
+    # rendering shouldn't make the admin wait on "Match hinzugefügt") - a
+    # manual match is always already-finished, so always a "result" draft,
+    # covering the whole series (not one draft per map).
+    background_tasks.add_task(
+        social_post_generation.generate_draft,
+        team=team, post_type="result", opponent_name=payload.opponent_name,
+        competition_name=payload.competition_name, match_datetime=payload.finished_at,
+        team_maps_won=sum(1 for m in maps if m.result == "win"),
+        opponent_maps_won=sum(1 for m in maps if m.result == "loss"),
+        maps_summary=", ".join(f"{m.map_name or '?'} {m.team_score}:{m.opponent_score}" for m in maps),
+        # Structured version of the same per-map data, for the image
+        # template's maps-played row (see social_posts/image_generation.py
+        # _draw_maps_row) - only populated here (manual multi-map series
+        # entry already records each map explicitly), not yet for
+        # FACEIT-auto-synced results.
+        maps=[
+            {
+                "name": m.map_name, "team_score": m.team_score,
+                "opponent_score": m.opponent_score, "result": m.result,
+            }
+            for m in maps
+        ] if len(maps) > 1 else None,
     )
     return build_team_match_schema(maps)
 
@@ -4568,6 +4595,7 @@ MANAGEABLE_PERMISSIONS: List[tuple[str, str, str]] = [
     ("social_media", "manage_social_media_vault", "Social-Media-Zugangsdaten verwalten (Vaultwarden)"),
     ("gameservers", "manage_gameservers", "CS2-Gameserver verwalten"),
     ("communications", "send_email", "Freitext-E-Mails versenden (info@/orga@/persönliche Adresse)"),
+    ("social_posts", "manage_social_posts", "Social-Media-Post-Entwürfe einsehen/verwalten"),
 ]
 
 def _build_role_schema(group: Group) -> RoleSchema:
@@ -4848,6 +4876,104 @@ async def get_email_log(
         return list(EmailLog.objects.order_by('-created_at')[:limit])
     entries = await sync_to_async(_collect)()
     return [build_email_log_schema(e) for e in entries]
+
+# --- Admin: social-media post drafts (announcement/result, auto-generated) ---
+#
+# Drafts are created automatically (see faceit_integration/sync.py and
+# create_manual_match above) - this section is read/regenerate/delete only,
+# there's no "create" endpoint since a draft always originates from a real
+# match event, never typed up from scratch here.
+
+class SocialPostDraftSchema(BaseModel):
+    id: int
+    team_id: int
+    team_name: str
+    post_type: str
+    opponent_name: Optional[str] = None
+    competition_name: Optional[str] = None
+    match_datetime: Optional[str] = None
+    team_maps_won: Optional[int] = None
+    opponent_maps_won: Optional[int] = None
+    maps_summary: Optional[str] = None
+    maps: Optional[list[dict]] = None
+    text_facebook: str
+    text_instagram: str
+    text_x: str
+    image_url: Optional[str] = None
+    generation_error: Optional[str] = None
+    created_at: str
+
+def build_social_post_draft_schema(draft: SocialPostDraft) -> SocialPostDraftSchema:
+    return SocialPostDraftSchema(
+        id=draft.id,
+        team_id=draft.team_id,
+        team_name=draft.team.name,
+        post_type=draft.post_type,
+        opponent_name=draft.opponent_name,
+        competition_name=draft.competition_name,
+        match_datetime=draft.match_datetime.isoformat() if draft.match_datetime else None,
+        team_maps_won=draft.team_maps_won,
+        opponent_maps_won=draft.opponent_maps_won,
+        maps_summary=draft.maps_summary,
+        maps=draft.maps,
+        text_facebook=draft.text_facebook,
+        text_instagram=draft.text_instagram,
+        text_x=draft.text_x,
+        image_url=build_media_url(draft.image) if draft.image else None,
+        generation_error=draft.generation_error,
+        created_at=draft.created_at.isoformat(),
+    )
+
+@app.get("/admin/social-posts/", response_model=List[SocialPostDraftSchema])
+async def get_social_post_drafts(
+    limit: int = 50,
+    current_admin: CustomUser = Depends(require_permission("social_posts.manage_social_posts")),
+):
+    def _collect():
+        return list(SocialPostDraft.objects.select_related('team').order_by('-created_at')[:limit])
+    drafts = await sync_to_async(_collect)()
+    return [build_social_post_draft_schema(d) for d in drafts]
+
+@app.post("/admin/social-posts/{draft_id}/regenerate/", response_model=SocialPostDraftSchema)
+async def regenerate_social_post_draft(
+    draft_id: int,
+    current_admin: CustomUser = Depends(require_permission("social_posts.manage_social_posts")),
+):
+    """Re-runs generation from the draft's own snapshotted match context
+    (not a fresh sync) - lets an admin retry a bad/failed take (e.g. Ollama
+    was briefly unreachable) without needing the underlying match event to
+    happen again."""
+    try:
+        old = await sync_to_async(SocialPostDraft.objects.select_related('team').get)(id=draft_id)
+    except SocialPostDraft.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entwurf nicht gefunden")
+
+    def _regenerate():
+        new_draft = social_post_generation.generate_draft(
+            team=old.team, post_type=old.post_type, opponent_name=old.opponent_name or "TBD",
+            competition_name=old.competition_name, match_datetime=old.match_datetime,
+            team_maps_won=old.team_maps_won, opponent_maps_won=old.opponent_maps_won,
+            maps_summary=old.maps_summary, maps=old.maps, opponent_logo_url=old.opponent_logo_url,
+        )
+        old.delete()
+        return new_draft
+
+    new_draft = await sync_to_async(_regenerate)()
+    await sync_to_async(_log_action)(current_admin, "regenerate", "SocialPostDraft", new_draft.id, new_draft.opponent_name)
+    return build_social_post_draft_schema(new_draft)
+
+@app.delete("/admin/social-posts/{draft_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_social_post_draft(
+    draft_id: int,
+    current_admin: CustomUser = Depends(require_permission("social_posts.manage_social_posts")),
+):
+    try:
+        draft = await sync_to_async(SocialPostDraft.objects.get)(id=draft_id)
+    except SocialPostDraft.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entwurf nicht gefunden")
+    label = draft.opponent_name
+    await sync_to_async(draft.delete)()
+    await sync_to_async(_log_action)(current_admin, "delete", "SocialPostDraft", draft_id, label)
 
 # --- Admin: audit log (read-only, superuser-only oversight) ---
 

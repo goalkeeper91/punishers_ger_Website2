@@ -6,7 +6,7 @@
 
 import { hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "./auth";
 
-export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "leagues" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers" | "praccs" | "communications";
+export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "leagues" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers" | "praccs" | "communications" | "social-posts";
 
 export interface AdminNavItem {
   key: AdminNavKey;
@@ -38,10 +38,11 @@ export function getAdminNavItems(
   const canSocialMediaVault = hasPerm("social_media.manage_social_media_vault");
   const canGameservers = hasPerm("gameservers.manage_gameservers");
   const canSendEmail = hasPerm("communications.send_email");
+  const canSocialPosts = hasPerm("social_posts.manage_social_posts");
 
   const items: AdminNavItem[] = [];
 
-  if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings || canApplications || canDiscordBot || canSocialMediaVault || canGameservers || canSendEmail) {
+  if (isAdmin || isTeamManager || canNews || canSponsors || canManageUsers || canBlanketTeams || canSiteSettings || canApplications || canDiscordBot || canSocialMediaVault || canGameservers || canSendEmail || canSocialPosts) {
     items.push({ key: "dashboard", href: "/admin", label: "Dashboard" });
   }
   const pendingUsersCount = opts?.pendingUsersCount;
@@ -96,6 +97,9 @@ export function getAdminNavItems(
   }
   if (isAdmin || canSendEmail) {
     items.push({ key: "communications", href: "/admin/communications", label: "E-Mail versenden" });
+  }
+  if (isAdmin || canSocialPosts) {
+    items.push({ key: "social-posts", href: "/admin/social-posts", label: "Social-Media-Posts" });
   }
   if (isAdmin) {
     items.push({ key: "audit-log", href: "/admin/audit-log", label: "Audit-Log" });
