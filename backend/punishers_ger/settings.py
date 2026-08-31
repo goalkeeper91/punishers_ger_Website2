@@ -122,7 +122,7 @@ FACEIT_SYNC_INTERVAL_MINUTES = int(os.environ.get("FACEIT_SYNC_INTERVAL_MINUTES"
 # gracefully (the image still gets generated), same fallback convention as
 # the other optional integrations in this file.
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL") or None
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 
 # Twitch Helix API (see twitch_integration/client.py) - app registered at
 # https://dev.twitch.tv/console. Used only for public live-stream status of

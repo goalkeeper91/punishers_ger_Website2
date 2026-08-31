@@ -24,7 +24,7 @@ class OllamaClient:
                 "OLLAMA_BASE_URL ist nicht gesetzt. In backend/.env eintragen "
                 "(z.B. http://goalkeeper_ollama_prod:11434 - interner Docker-Netzwerk-Name)."
             )
-        self.model = model or getattr(settings, "OLLAMA_MODEL", None) or "llama3.1"
+        self.model = model or getattr(settings, "OLLAMA_MODEL", None) or "llama3.2:3b"
 
     def generate(self, prompt: str) -> str:
         """POST /api/generate with stream=False - waits for the complete
