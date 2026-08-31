@@ -10,18 +10,25 @@ from typing import Optional
 import requests
 from django.conf import settings
 
-DEFAULT_TIMEOUT = 60  # seconds - local LLM inference, can genuinely take a while
+# CPU-only local inference on a modest VPS, so a cold model load (the
+# model isn't currently resident - see KEEP_ALIVE below) plus generating a
+# few hundred characters can genuinely take more than a minute; confirmed
+# live (a facebook-platform call timed out at the previous 60s). Always
+# runs in a background task with nobody waiting on the HTTP response, so a
+# generous timeout costs nothing - better to wait than to silently drop a
+# platform's text.
+DEFAULT_TIMEOUT = 180  # seconds
 
-# Ollama keeps a model resident in memory for a while after each request
-# (its own default is 5 minutes) - fine for a chat app taking requests
-# constantly, wasteful here: a self-hosted 3B model idles at ~2.5GB RSS on
-# a modest VPS (confirmed live: 33% of the box's total RAM) for a feature
-# that only fires a few times a day (match sync events, manual admin
-# clicks). A short keep_alive lets Ollama release that memory back to the
-# rest of the stack (Postgres, the backend itself, ...) shortly after each
-# generation burst, at the cost of a few seconds' reload latency on the
-# next one - an easy trade for a background task nobody is watching live.
-KEEP_ALIVE = "2m"
+# Ollama keeps a model resident in memory for a while after each request -
+# its own default is 5 minutes. A self-hosted 3B model idles at a couple
+# GB RSS while resident (confirmed live: ~2.5GB, a third of this box's
+# total RAM) for a feature that only fires a few times a day, so there's a
+# real incentive to let it unload between bursts - but too short a value
+# just trades that memory for more frequent cold-load timeouts (see
+# DEFAULT_TIMEOUT above - this was tried at "2m" and produced exactly that
+# regression). Left at Ollama's own default rather than overridden more
+# aggressively.
+KEEP_ALIVE = "5m"
 
 # Every /api/generate call blocks on CPU-bound local inference (no GPU on
 # this box) for several seconds. generate_post_texts() alone already makes
