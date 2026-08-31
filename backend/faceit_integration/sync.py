@@ -244,54 +244,88 @@ def _announce_match_result(match: TeamFaceitMatch) -> None:
         )
 
 
-def _generate_social_post_draft(match: TeamFaceitMatch, post_type: str) -> None:
-    """Best-effort: a failed post-draft generation must never break the
-    actual match sync. Local import for the same reason as
-    _announce_match_result above - social_posts isn't needed anywhere else
-    in this module.
+def generate_social_post_draft_for_series(matches: list[TeamFaceitMatch], post_type: str) -> Optional["SocialPostDraft"]:
+    """Drafts one social post from one or more TeamFaceitMatch rows sharing
+    a series (or a single-item list for a Bo1/FACEIT-synced fixture, which
+    never has a series_id). The shared entry point for every trigger path:
+    the automatic FACEIT-sync hooks below (single-row), manual multi-map
+    match entry (fastapi_app/main.py create_manual_match, N rows), and the
+    manual "jetzt generieren" admin trigger (fastapi_app/main.py
+    trigger_social_post_generation, either shape). Best-effort - a failed
+    draft must never break whatever triggered it (a sync run, a match
+    creation) - so this returns None on total failure instead of raising;
+    callers that need to surface an error to an admin (the manual trigger)
+    check for that, everything else just logs and moves on. Local import:
+    social_posts isn't needed anywhere else in this module.
 
-    team_maps_won/opponent_maps_won come straight from match.team_score/
-    match.opponent_score - i.e. results.score, as returned by FACEIT for
-    this match_id (see sync_league_matches). For a multi-map league fixture
-    (e.g. this org's real Bo3s) that field is already the SERIES score
-    (maps won, e.g. 2:1), not a single map's round score - a match_id
-    covers the whole series, individual per-map round scores only exist in
-    the separate /matches/{id}/stats response. Previously this hardcoded
-    1:0/0:1 (i.e. assumed every fixture was a Bo1), which was wrong for any
-    real multi-map series. No structured per-map breakdown (MatchContext.
-    maps / the image's maps-played row) is built here yet - only the
-    manual-match-entry path populates that today, see fastapi_app/main.py
-    create_manual_match."""
+    For a single row: team_maps_won/opponent_maps_won come straight from
+    match.team_score/match.opponent_score - i.e. results.score, as returned
+    by FACEIT for this match_id. For a multi-map league fixture (e.g. this
+    org's real Bo3s) that field is already the SERIES score (maps won, e.g.
+    2:1), not a single map's round score - a match_id covers the whole
+    series; FACEIT's individual per-map round scores only exist in the
+    separate /matches/{id}/stats response, not built into a structured
+    maps-row here yet (only the manual multi-row case below has that).
+
+    For multiple rows (always a manually-recorded series - see
+    fastapi_app/main.py create_manual_match, the only place series_id gets
+    set): team_maps_won/opponent_maps_won are counted directly from each
+    row's own result, and a structured per-map list is built for the
+    image's maps-played row (see social_posts/image_generation.py
+    _draw_maps_row)."""
     from social_posts.generation import generate_draft
 
-    team_maps_won = opponent_maps_won = None
-    if post_type == "result":
-        team_maps_won, opponent_maps_won = match.team_score, match.opponent_score
-    maps_summary = None
-    if match.map_name and match.team_score is not None and match.opponent_score is not None:
-        maps_summary = f"{match.map_name} {match.team_score}:{match.opponent_score}"
+    first = matches[0]
+    team = first.league_entry.team
+    opponent_name = first.opponent_name
+    competition_name = first.competition_name
 
-    # The opponent's FACEIT team avatar, for the image template's matchup
-    # badges (see social_posts/image_generation.py) - re-derived from the
-    # full match payload already stored in raw_data rather than needing a
-    # dedicated field, since it's only ever used at draft-generation time.
-    opponent_logo_url = None
-    if match.raw_data:
-        our_key = _extract_our_faction_key(match.raw_data, match.league_entry.faceit_team_id)
-        if our_key:
-            opponent_key = "faction2" if our_key == "faction1" else "faction1"
-            opponent_logo_url = ((match.raw_data.get("teams") or {}).get(opponent_key) or {}).get("avatar") or None
+    if len(matches) == 1:
+        match = first
+        team_maps_won = opponent_maps_won = None
+        if post_type == "result":
+            team_maps_won, opponent_maps_won = match.team_score, match.opponent_score
+        maps_summary = None
+        if match.map_name and match.team_score is not None and match.opponent_score is not None:
+            maps_summary = f"{match.map_name} {match.team_score}:{match.opponent_score}"
+        maps_struct = None
+        match_datetime = match.finished_at if post_type == "result" else match.scheduled_at
+
+        # The opponent's FACEIT team avatar, for the image template's
+        # matchup badges (see social_posts/image_generation.py) -
+        # re-derived from the full match payload already stored in
+        # raw_data rather than needing a dedicated field, since it's only
+        # ever used at draft-generation time. None for a manual match
+        # (no raw_data to derive it from).
+        opponent_logo_url = None
+        if match.raw_data:
+            our_key = _extract_our_faction_key(match.raw_data, match.league_entry.faceit_team_id)
+            if our_key:
+                opponent_key = "faction2" if our_key == "faction1" else "faction1"
+                opponent_logo_url = ((match.raw_data.get("teams") or {}).get(opponent_key) or {}).get("avatar") or None
+    else:
+        team_maps_won = sum(1 for m in matches if m.result == "win")
+        opponent_maps_won = sum(1 for m in matches if m.result == "loss")
+        maps_summary = ", ".join(f"{m.map_name or '?'} {m.team_score}:{m.opponent_score}" for m in matches)
+        maps_struct = [
+            {"name": m.map_name, "team_score": m.team_score, "opponent_score": m.opponent_score, "result": m.result}
+            for m in matches
+        ]
+        match_datetime = first.finished_at
+        opponent_logo_url = None  # manually-recorded series has no FACEIT match data to pull one from
 
     try:
-        generate_draft(
-            team=match.league_entry.team, post_type=post_type,
-            opponent_name=match.opponent_name or "TBD", competition_name=match.competition_name,
-            match_datetime=match.finished_at if post_type == "result" else match.scheduled_at,
+        return generate_draft(
+            team=team, post_type=post_type, opponent_name=opponent_name or "TBD",
+            competition_name=competition_name, match_datetime=match_datetime,
             team_maps_won=team_maps_won, opponent_maps_won=opponent_maps_won, maps_summary=maps_summary,
-            opponent_logo_url=opponent_logo_url,
+            maps=maps_struct, opponent_logo_url=opponent_logo_url,
         )
     except Exception:
-        logger.exception("Social-Post-Entwurf-Generierung fehlgeschlagen für Match %s", match.faceit_match_id)
+        logger.exception(
+            "Social-Post-Entwurf-Generierung fehlgeschlagen für Match %s", first.faceit_match_id,
+        )
+        return None
 
 
 def sync_league_matches(league: League, client: FaceitClient) -> dict:
@@ -376,13 +410,13 @@ def sync_league_matches(league: League, client: FaceitClient) -> dict:
                     # while it's still upcoming (was_created is only True
                     # once, unlike the previous_result check below which
                     # would otherwise need its own "already drafted" guard).
-                    _generate_social_post_draft(match_obj, "announcement")
+                    generate_social_post_draft_for_series([match_obj], "announcement")
             else:
                 updated += 1
 
             if previous_result is None and match_obj.result is not None:
                 _announce_match_result(match_obj)
-                _generate_social_post_draft(match_obj, "result")
+                generate_social_post_draft_for_series([match_obj], "result")
             break  # found the entry this match belongs to, no need to check the rest
 
     return {"created": created, "updated": updated}

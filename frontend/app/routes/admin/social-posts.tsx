@@ -24,18 +24,40 @@ interface SocialPostDraft {
   created_at: string;
 }
 
+interface AvailableMatch {
+  id: number;
+  team_name: string;
+  league_name: string;
+  opponent_name: string | null;
+  competition_name: string | null;
+  status: "upcoming" | "ongoing" | "finished";
+  scheduled_at: string | null;
+  finished_at: string | null;
+  is_series: boolean;
+  maps_count: number;
+}
+
 export const clientLoader: ClientLoaderFunction = async () => {
   if (!isLoggedIn()) {
     throw redirect("/login");
   }
-  const response = await authFetch("/admin/social-posts/");
-  if (!response.ok) {
-    if (response.status === 401) throw redirect("/login");
-    if (response.status === 403) throw redirect("/admin");
-    throw new Error(`HTTP error! status: ${response.status}`);
+  const [draftsResponse, matchesResponse] = await Promise.all([
+    authFetch("/admin/social-posts/"),
+    authFetch("/admin/social-posts/available-matches/"),
+  ]);
+  if (!draftsResponse.ok) {
+    if (draftsResponse.status === 401) throw redirect("/login");
+    if (draftsResponse.status === 403) throw redirect("/admin");
+    throw new Error(`HTTP error! status: ${draftsResponse.status}`);
   }
-  const drafts: SocialPostDraft[] = await response.json();
-  return { drafts };
+  if (!matchesResponse.ok) {
+    if (matchesResponse.status === 401) throw redirect("/login");
+    if (matchesResponse.status === 403) throw redirect("/admin");
+    throw new Error(`HTTP error! status: ${matchesResponse.status}`);
+  }
+  const drafts: SocialPostDraft[] = await draftsResponse.json();
+  const availableMatches: AvailableMatch[] = await matchesResponse.json();
+  return { drafts, availableMatches };
 };
 
 export function HydrateFallback() {
@@ -56,6 +78,18 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
   }
 
   try {
+    if (intent === "generate") {
+      const matchId = formData.get("match_id");
+      if (!matchId) return { error: "Bitte ein Match auswählen." };
+      const response = await authFetch("/admin/social-posts/generate/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ match_id: Number(matchId) }),
+      });
+      const data = await response.json();
+      if (!response.ok) return { error: extractErrorMessage(data, "Entwurf konnte nicht generiert werden.") };
+      return { success: "Entwurf generiert." };
+    }
     if (intent === "regenerate") {
       const response = await authFetch(`/admin/social-posts/${id}/regenerate/`, { method: "POST" });
       const data = await response.json();
@@ -204,8 +238,77 @@ function DraftCard({ draft, isSubmitting }: { draft: SocialPostDraft; isSubmitti
   );
 }
 
+function formatMatchOptionLabel(m: AvailableMatch): string {
+  const opponent = m.opponent_name || "?";
+  const seriesTag = m.is_series ? ` (Bo${m.maps_count})` : "";
+  if (m.status === "finished") {
+    const date = m.finished_at ? new Date(m.finished_at).toLocaleDateString("de-DE") : "";
+    return `${m.team_name} vs. ${opponent}${seriesTag} · ${date}`;
+  }
+  const date = m.scheduled_at
+    ? new Date(m.scheduled_at).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })
+    : "Termin offen";
+  const statusLabel = m.status === "ongoing" ? "läuft" : "bevorstehend";
+  return `${m.team_name} vs. ${opponent} · ${date} (${statusLabel})`;
+}
+
+function ManualGenerateForm({ availableMatches, isSubmitting }: { availableMatches: AvailableMatch[]; isSubmitting: boolean }) {
+  const submit = useSubmit();
+  const upcoming = availableMatches.filter((m) => m.status === "upcoming" || m.status === "ongoing");
+  const finished = availableMatches.filter((m) => m.status === "finished");
+  const [selectedId, setSelectedId] = useState<string>(String(upcoming[0]?.id ?? finished[0]?.id ?? ""));
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!selectedId) return;
+        const fd = new FormData();
+        fd.set("_intent", "generate");
+        fd.set("match_id", selectedId);
+        submit(fd, { method: "post" });
+      }}
+      className="bg-gray-800 rounded-lg shadow-xl p-6 mb-8 flex flex-col sm:flex-row gap-3 sm:items-end"
+    >
+      <div className="flex-1">
+        <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
+          Match manuell auswählen
+        </label>
+        <select
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          className="block w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-200 text-sm focus:outline-none focus:border-red-500"
+        >
+          {availableMatches.length === 0 && <option value="">Keine Matches verfügbar</option>}
+          {upcoming.length > 0 && (
+            <optgroup label="Bevorstehend / laufend (Ankündigung)">
+              {upcoming.map((m) => (
+                <option key={m.id} value={m.id}>{formatMatchOptionLabel(m)}</option>
+              ))}
+            </optgroup>
+          )}
+          {finished.length > 0 && (
+            <optgroup label="Beendet (Ergebnis)">
+              {finished.map((m) => (
+                <option key={m.id} value={m.id}>{formatMatchOptionLabel(m)}</option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </div>
+      <button
+        type="submit"
+        disabled={isSubmitting || !selectedId}
+        className="py-2 px-4 rounded-md text-white text-sm font-semibold bg-red-600 hover:bg-red-700 disabled:opacity-50 whitespace-nowrap"
+      >
+        Entwurf jetzt generieren
+      </button>
+    </form>
+  );
+}
+
 export default function AdminSocialPostsPage() {
-  const { drafts } = useLoaderData() as { drafts: SocialPostDraft[] };
+  const { drafts, availableMatches } = useLoaderData() as { drafts: SocialPostDraft[]; availableMatches: AvailableMatch[] };
   const actionData = useActionData() as { error?: string; success?: string } | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
@@ -223,6 +326,8 @@ export default function AdminSocialPostsPage() {
         <p className="text-sm text-gray-400 mb-6">
           Wird automatisch erzeugt, sobald ein Match als bevorstehend synct oder ein Ergebnis feststeht (FACEIT-Sync oder manuelle Erfassung) - Text via lokalem Ollama, Bild als Vorlage mit euren Team-/Match-Daten.
         </p>
+
+        <ManualGenerateForm availableMatches={availableMatches} isSubmitting={isSubmitting} />
 
         <div className="space-y-6">
           {drafts.map((draft) => (

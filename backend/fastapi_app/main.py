@@ -3158,27 +3158,10 @@ async def create_manual_match(
     # Backgrounded, same reasoning as the FACEIT-sync hook (LLM + image
     # rendering shouldn't make the admin wait on "Match hinzugefügt") - a
     # manual match is always already-finished, so always a "result" draft,
-    # covering the whole series (not one draft per map).
-    background_tasks.add_task(
-        social_post_generation.generate_draft,
-        team=team, post_type="result", opponent_name=payload.opponent_name,
-        competition_name=payload.competition_name, match_datetime=payload.finished_at,
-        team_maps_won=sum(1 for m in maps if m.result == "win"),
-        opponent_maps_won=sum(1 for m in maps if m.result == "loss"),
-        maps_summary=", ".join(f"{m.map_name or '?'} {m.team_score}:{m.opponent_score}" for m in maps),
-        # Structured version of the same per-map data, for the image
-        # template's maps-played row (see social_posts/image_generation.py
-        # _draw_maps_row) - only populated here (manual multi-map series
-        # entry already records each map explicitly), not yet for
-        # FACEIT-auto-synced results.
-        maps=[
-            {
-                "name": m.map_name, "team_score": m.team_score,
-                "opponent_score": m.opponent_score, "result": m.result,
-            }
-            for m in maps
-        ] if len(maps) > 1 else None,
-    )
+    # covering the whole series (not one draft per map). Shared with the
+    # FACEIT-sync hooks and the manual "jetzt generieren" trigger below -
+    # see faceit_integration/sync.py generate_social_post_draft_for_series.
+    background_tasks.add_task(faceit_sync.generate_social_post_draft_for_series, maps, "result")
     return build_team_match_schema(maps)
 
 @app.delete("/admin/teams/{team_id}/matches/{match_id}/", status_code=status.HTTP_204_NO_CONTENT)
@@ -4933,6 +4916,102 @@ async def get_social_post_drafts(
         return list(SocialPostDraft.objects.select_related('team').order_by('-created_at')[:limit])
     drafts = await sync_to_async(_collect)()
     return [build_social_post_draft_schema(d) for d in drafts]
+
+class AvailableMatchSchema(BaseModel):
+    id: int  # first row's id in the series - what POST .../generate/ accepts as match_id
+    team_name: str
+    league_name: str
+    opponent_name: Optional[str] = None
+    competition_name: Optional[str] = None
+    status: str
+    scheduled_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    is_series: bool
+    maps_count: int
+
+def build_available_match_schema(group: List[TeamFaceitMatch]) -> AvailableMatchSchema:
+    first = group[0]
+    return AvailableMatchSchema(
+        id=first.id,
+        team_name=first.league_entry.team.name,
+        league_name=first.league_entry.league.name,
+        opponent_name=first.opponent_name,
+        competition_name=first.competition_name,
+        status=first.status,
+        scheduled_at=first.scheduled_at.isoformat() if first.scheduled_at else None,
+        finished_at=first.finished_at.isoformat() if first.finished_at else None,
+        is_series=len(group) > 1,
+        maps_count=len(group),
+    )
+
+@app.get("/admin/social-posts/available-matches/", response_model=List[AvailableMatchSchema])
+async def get_available_matches_for_social_posts(
+    current_admin: CustomUser = Depends(require_permission("social_posts.manage_social_posts")),
+):
+    """Feeds the manual-trigger dropdown on /admin/social-posts - every
+    upcoming/ongoing match (for an "Ankündigung"-post) always comes first,
+    soonest first, regardless of how many finished matches exist below -
+    an admin must always be able to manually draft the next match's
+    announcement, not just past results. Finished matches/series (for a
+    "Ergebnis"-post) follow, most recent first. Not team-scoped, unlike
+    /admin/teams/{id}/matches/ - this permission is global, matching the
+    rest of the social-posts admin surface."""
+    def _collect():
+        matches = list(
+            TeamFaceitMatch.objects.exclude(status='cancelled')
+            .select_related('league_entry__team', 'league_entry__league')
+            .order_by('-finished_at', '-scheduled_at')
+        )
+        groups = _group_matches_into_series(matches)
+        upcoming = sorted(
+            (g for g in groups if g[0].status in ('upcoming', 'ongoing')),
+            key=lambda g: g[0].scheduled_at or datetime.max.replace(tzinfo=timezone.utc),
+        )
+        finished = [g for g in groups if g[0].status == 'finished']
+        return upcoming + finished
+    groups = await sync_to_async(_collect)()
+    return [build_available_match_schema(g) for g in groups]
+
+class SocialPostGenerateRequest(BaseModel):
+    match_id: int
+
+@app.post("/admin/social-posts/generate/", response_model=SocialPostDraftSchema, status_code=status.HTTP_201_CREATED)
+async def trigger_social_post_generation(
+    payload: SocialPostGenerateRequest,
+    current_admin: CustomUser = Depends(require_permission("social_posts.manage_social_posts")),
+):
+    """Manual trigger for the dropdown+button on /admin/social-posts - draft
+    a post right now for a specific match/series instead of waiting for the
+    automatic sync/manual-entry hooks (e.g. to redo one, or draft an
+    announcement early). match_id is any row's id from the series (see
+    AvailableMatchSchema.id); its series_id, if any, pulls in the rest of
+    that series. post_type is derived from the match's own status - never
+    client-supplied - so a finished match can't accidentally get drafted
+    as an announcement or vice versa."""
+    def _generate():
+        try:
+            match = TeamFaceitMatch.objects.select_related('league_entry__team', 'league_entry__league').get(id=payload.match_id)
+        except TeamFaceitMatch.DoesNotExist:
+            return None, None
+        if match.series_id:
+            series = list(
+                TeamFaceitMatch.objects.filter(series_id=match.series_id)
+                .select_related('league_entry__team', 'league_entry__league')
+                .order_by('id')
+            )
+        else:
+            series = [match]
+        post_type = "result" if match.status == "finished" else "announcement"
+        draft = faceit_sync.generate_social_post_draft_for_series(series, post_type)
+        return draft, match
+
+    draft, match = await sync_to_async(_generate)()
+    if match is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match nicht gefunden")
+    if draft is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Entwurf-Generierung fehlgeschlagen")
+    await sync_to_async(_log_action)(current_admin, "generate", "SocialPostDraft", draft.id, draft.opponent_name)
+    return build_social_post_draft_schema(draft)
 
 @app.post("/admin/social-posts/{draft_id}/regenerate/", response_model=SocialPostDraftSchema)
 async def regenerate_social_post_draft(
