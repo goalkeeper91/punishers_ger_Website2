@@ -26,7 +26,18 @@ from .models import FaceitSyncRun, PlayerFaceitStats, TeamFaceitMatch, PlayerFac
 logger = logging.getLogger(__name__)
 
 MAX_MATCH_PAGES = 10  # safety cap: 10 * 50 = 500 matches per type per championship
-MAX_CHAMPIONSHIP_PAGES = 5  # safety cap: 5 * 50 = 250 seasons per organizer
+# safety cap: 60 * 50 = 3000 championships/organizer. Deliberately generous -
+# GET /organizers/{id}/championships is not reliably ordered by recency (an
+# organizer running many parallel divisions/cups can have a brand-new,
+# already-started championship show up anywhere in the list), so a low cap
+# here risks silently never reaching a real, current championship at all -
+# confirmed live: a same-season match was missing entirely, not just
+# mis-synced, because its championship sat past the old cap of 250. A high
+# API-call cost here is an acceptable tradeoff since the manual admin
+# trigger is async (see trigger_faceit_sync in fastapi_app/main.py) and the
+# scheduled sync already runs in its own background thread either way -
+# neither is blocked by how long this takes.
+MAX_CHAMPIONSHIP_PAGES = 60
 MAX_MATCH_STATS_PER_RUN = 30  # safety cap: detailed match-stats calls are one HTTP request each
 
 
@@ -160,13 +171,23 @@ def _get_league_championships(league: League, client: FaceitClient, game_id: Opt
     game_id = game_id or settings.FACEIT_DEFAULT_GAME_ID
     championships: list[dict] = []
     offset = 0
+    hit_cap = True
     for _ in range(MAX_CHAMPIONSHIP_PAGES):
         page = client.get_organizer_championships(league.faceit_organizer_id, game_id=game_id, offset=offset, limit=50)
         items = page.get("items", [])
         championships.extend(items)
         if len(items) < 50:
+            hit_cap = False
             break
         offset += 50
+    if hit_cap:
+        # The API isn't reliably ordered by recency, so this isn't just
+        # "the oldest N got skipped" - any not-yet-fetched championship,
+        # including a brand-new one, could be silently missing matches.
+        logger.warning(
+            "Liga '%s': MAX_CHAMPIONSHIP_PAGES (%s) erreicht, evtl. nicht alle Championships des Organizers erfasst.",
+            league.name, MAX_CHAMPIONSHIP_PAGES,
+        )
     return championships
 
 
