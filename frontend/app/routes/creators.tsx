@@ -11,6 +11,7 @@ export const meta: MetaFunction = () =>
   });
 import { fetchCreators, type Creator } from "~/lib/publicContent";
 import { fetchPageBackground } from "~/lib/siteSettings";
+import { bannerFallback, imageFallback } from "~/lib/sampleAssets";
 
 export const loader: LoaderFunction = async () => {
   const [creators, backgroundUrl] = await Promise.all([
@@ -76,7 +77,7 @@ export default function CreatorsPage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
         {/* Hero Section for Creators */}
-        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || "https://via.placeholder.com/1920x400?text=Creators+Banner"}')` }}>
+        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || bannerFallback("https://via.placeholder.com/1920x400?text=Creators+Banner")}')` }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>
@@ -106,7 +107,7 @@ export default function CreatorsPage() {
                     {featuredCreators.map((creator) => (
                       <div key={creator.id} className="bg-gray-800 rounded-lg shadow-xl p-6 flex flex-col items-center transform hover:scale-105 transition-transform duration-300">
                         <img
-                          src={creator.profile_picture_url || `https://via.placeholder.com/300x300?text=${encodeURIComponent(creator.username)}`}
+                          src={creator.profile_picture_url || imageFallback(`https://via.placeholder.com/300x300?text=${encodeURIComponent(creator.username)}`)}
                           alt={creator.username}
                           className="w-36 h-36 rounded-full object-cover mb-4 border-4 border-red-600"
                         />
@@ -133,7 +134,7 @@ export default function CreatorsPage() {
                     {otherCreators.map((creator) => (
                       <div key={creator.id} className="bg-gray-800 rounded-lg shadow-xl p-4 flex flex-col items-center transform hover:scale-105 transition-transform duration-300">
                         <img
-                          src={creator.profile_picture_url || `https://via.placeholder.com/150?text=${encodeURIComponent(creator.username)}`}
+                          src={creator.profile_picture_url || imageFallback(`https://via.placeholder.com/150?text=${encodeURIComponent(creator.username)}`)}
                           alt={creator.username}
                           className="w-24 h-24 rounded-full object-cover mb-3 border-2 border-red-600"
                         />

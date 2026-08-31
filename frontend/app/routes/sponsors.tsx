@@ -11,6 +11,7 @@ export const meta: MetaFunction = () =>
   });
 import { fetchActiveSponsors, trackSponsorClick, type Sponsor } from "~/lib/publicContent";
 import { fetchPageBackground } from "~/lib/siteSettings";
+import { bannerFallback, imageFallback } from "~/lib/sampleAssets";
 
 export const loader: LoaderFunction = async () => {
   const [sponsors, backgroundUrl] = await Promise.all([
@@ -23,7 +24,7 @@ export const loader: LoaderFunction = async () => {
 function SponsorLogo({ sponsor }: { sponsor: Sponsor }) {
   const img = (
     <img
-      src={sponsor.logo_url || `https://via.placeholder.com/200x100?text=${encodeURIComponent(sponsor.name)}`}
+      src={sponsor.logo_url || imageFallback(`https://via.placeholder.com/200x100?text=${encodeURIComponent(sponsor.name)}`)}
       alt={sponsor.name}
       className="max-h-full max-w-full object-contain"
     />
@@ -46,7 +47,7 @@ export default function SponsorsPage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
         {/* Hero Section for Sponsors */}
-        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || "https://via.placeholder.com/1920x400?text=Sponsors+Banner"}')` }}>
+        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || bannerFallback("https://via.placeholder.com/1920x400?text=Sponsors+Banner")}')` }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>

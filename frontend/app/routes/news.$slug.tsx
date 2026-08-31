@@ -3,7 +3,7 @@ import { useLoaderData } from "react-router";
 import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
-import { imageFallback } from "~/lib/sampleAssets";
+import { bannerFallback } from "~/lib/sampleAssets";
 import { getLanguageFromCookieHeader } from "~/i18n/config";
 import { stripMarkdown } from "~/lib/markdown";
 import { buildMeta, SITE_URL, SITE_NAME, DEFAULT_IMAGE } from "~/lib/seo";
@@ -75,7 +75,11 @@ function newsArticleJsonLd(article: NewsArticle): string {
 }
 
 function formatDate(dateString: string, language: string): string {
-  return new Date(dateString).toLocaleDateString(language === "en" ? "en-US" : "de-DE", { year: "numeric", month: "long", day: "numeric" });
+  // Explicit timeZone: this route is server-rendered (LoaderFunction), so
+  // without a fixed zone the server (UTC) and the visitor's browser could
+  // format the same instant as different text - a React hydration
+  // mismatch (error #418), same root cause fixed in MatchHighlightWidget.
+  return new Date(dateString).toLocaleDateString(language === "en" ? "en-US" : "de-DE", { year: "numeric", month: "long", day: "numeric", timeZone: "Europe/Berlin" });
 }
 
 export default function NewsDetailPage() {
@@ -91,7 +95,7 @@ export default function NewsDetailPage() {
       <main>
         <section
           className="relative py-20 md:py-32 bg-cover bg-center text-center"
-          style={{ backgroundImage: `url('${article.image_url || imageFallback("https://via.placeholder.com/1920x400?text=News")}')` }}
+          style={{ backgroundImage: `url('${article.image_url || bannerFallback("https://via.placeholder.com/1920x400?text=News")}')` }}
         >
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">

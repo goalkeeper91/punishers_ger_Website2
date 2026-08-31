@@ -2,7 +2,7 @@ import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
-import { imageFallback } from "~/lib/sampleAssets";
+import { imageFallback, bannerFallback } from "~/lib/sampleAssets";
 import { buildMeta } from "~/lib/seo";
 
 interface Player {
@@ -72,7 +72,7 @@ export default function TeamDetailPage() {
       <main>
         <section
           className="relative py-20 md:py-32 bg-cover bg-center text-center"
-          style={{ backgroundImage: `url('${team.image_url || imageFallback("https://via.placeholder.com/1920x400?text=" + encodeURIComponent(team.name))}')` }}
+          style={{ backgroundImage: `url('${team.image_url || bannerFallback("https://via.placeholder.com/1920x400?text=" + encodeURIComponent(team.name))}')` }}
         >
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
@@ -109,7 +109,7 @@ export default function TeamDetailPage() {
                       src={
                         player.image_url ||
                         player.user?.profile_picture_url ||
-                        `https://via.placeholder.com/150?text=${encodeURIComponent(player.ingame_name)}`
+                        imageFallback(`https://via.placeholder.com/150?text=${encodeURIComponent(player.ingame_name)}`)
                       }
                       alt={player.ingame_name}
                       className="w-28 h-28 rounded-full object-cover mb-4 border-4 border-red-600"

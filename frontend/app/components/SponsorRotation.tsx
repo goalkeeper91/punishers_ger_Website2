@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { trackSponsorClick, type Sponsor } from "~/lib/publicContent";
+import { imageFallback } from "~/lib/sampleAssets";
 
 const ROTATION_INTERVAL_MS = 4500;
 
@@ -43,7 +44,7 @@ export default function SponsorRotation({ sponsors }: { sponsors: Sponsor[] }) {
             <div key={current.id} className="motion-safe:animate-fade-in flex flex-col items-center">
               <div className="h-20 md:h-24 flex items-center justify-center mb-5">
                 <img
-                  src={current.logo_url || `https://via.placeholder.com/240x100?text=${encodeURIComponent(current.name)}`}
+                  src={current.logo_url || imageFallback(`https://via.placeholder.com/240x100?text=${encodeURIComponent(current.name)}`)}
                   alt={current.name}
                   className="max-h-full max-w-full object-contain"
                 />

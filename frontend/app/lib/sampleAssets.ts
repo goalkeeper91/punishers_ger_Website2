@@ -231,9 +231,19 @@ export const sampleCreators: SampleCreator[] = [
 ];
 
 export const NO_IMAGE_FALLBACK = "/images/no-image.svg";
+export const BANNER_FALLBACK = "/images/hero-fallback.svg";
 
 /** Fallback `src` for an optional image: a placeholder in sample mode, a
  * neutral "no image" graphic in production mode. */
 export function imageFallback(sampleUrl: string): string {
   return USE_SAMPLE_ASSETS ? sampleUrl : NO_IMAGE_FALLBACK;
+}
+
+/** Same idea as imageFallback(), but for a full-bleed page banner/hero
+ * background instead of a small image slot - NO_IMAGE_FALLBACK's "broken
+ * image" X pattern is designed to sit in a card-sized box, not stretch
+ * across an entire hero section, so banners get their own dark branded
+ * fallback graphic instead. */
+export function bannerFallback(sampleUrl: string): string {
+  return USE_SAMPLE_ASSETS ? sampleUrl : BANNER_FALLBACK;
 }

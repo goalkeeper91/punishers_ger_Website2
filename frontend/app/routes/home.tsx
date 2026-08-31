@@ -16,6 +16,7 @@ import {
   type Creator,
 } from "~/lib/publicContent";
 import { fetchHeroVideoUrl } from "~/lib/siteSettings";
+import { imageFallback } from "~/lib/sampleAssets";
 import { buildMeta } from "~/lib/seo";
 
 export const meta: MetaFunction = () =>
@@ -59,7 +60,12 @@ export default function Home() {
       <main>
         {/* Hero Section */}
         <section id="home" className="relative min-h-[85vh] md:min-h-[90vh] flex items-center justify-center text-center overflow-hidden">
-          <HeroBackground posterUrl="https://via.placeholder.com/1920x1080?text=Esport+Arena+Background" videoUrl={heroVideoUrl} />
+          {/* Local asset, not an external placeholder service - via.placeholder.com
+              used to sit here and is now dead entirely (ERR_CONNECTION_CLOSED
+              in prod), which doesn't fail loudly for a CSS background-image
+              the way an <img> would, but does mean an unnecessary failed
+              network request on every load with no hero video configured. */}
+          <HeroBackground posterUrl="/images/hero-fallback.svg" videoUrl={heroVideoUrl} />
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 p-6 sm:p-8 max-w-4xl mx-auto">
             <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold text-white leading-tight mb-4">{t("hero.title")}</h1>
@@ -89,7 +95,7 @@ export default function Home() {
                   <div key={team.id} className="bg-gray-800 rounded-lg shadow-xl overflow-hidden transform hover:scale-105 transition-transform duration-300">
                     <div className="w-full h-48 bg-gray-900 flex items-center justify-center">
                       <img
-                        src={team.image_url || `https://via.placeholder.com/600x400?text=${encodeURIComponent(team.name)}`}
+                        src={team.image_url || imageFallback(`https://via.placeholder.com/600x400?text=${encodeURIComponent(team.name)}`)}
                         alt={team.name}
                         className="max-w-full max-h-full object-contain"
                       />
@@ -121,7 +127,7 @@ export default function Home() {
                 {featuredCreators.map((creator) => (
                   <div key={creator.id} className="bg-gray-800 rounded-lg shadow-xl p-6 flex flex-col items-center transform hover:scale-105 transition-transform duration-300">
                     <img
-                      src={creator.profile_picture_url || `https://via.placeholder.com/150?text=${encodeURIComponent(creator.username)}`}
+                      src={creator.profile_picture_url || imageFallback(`https://via.placeholder.com/150?text=${encodeURIComponent(creator.username)}`)}
                       alt={creator.username}
                       className="w-32 h-32 rounded-full object-cover mb-4 border-4 border-red-600"
                     />

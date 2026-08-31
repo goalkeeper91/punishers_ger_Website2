@@ -35,6 +35,7 @@ import {
   type SupportedLanguage,
 } from "~/i18n/config";
 import { SITE_URL, SITE_NAME, DEFAULT_IMAGE } from "~/lib/seo";
+import { imageFallback } from "~/lib/sampleAssets";
 
 type UserProfile = AuthUser;
 
@@ -453,7 +454,7 @@ function SiteChrome({
             {sponsors.concat(sponsors).map((sponsor, index) => {
               const logo = (
                 <img
-                  src={sponsor.logo_url || "https://via.placeholder.com/120x60?text=" + encodeURIComponent(sponsor.name)}
+                  src={sponsor.logo_url || imageFallback("https://via.placeholder.com/120x60?text=" + encodeURIComponent(sponsor.name))}
                   alt={sponsor.name}
                   className="h-8 object-contain"
                 />

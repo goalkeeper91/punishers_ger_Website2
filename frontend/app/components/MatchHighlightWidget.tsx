@@ -14,9 +14,15 @@ const SESSION_DISMISS_KEY = "punishers_match_widget_dismissed";
 const ROTATE_INTERVAL_MS = 6000;
 
 function formatDateTime(iso: string): string {
+  // Explicit timeZone is required here, not cosmetic - this renders during
+  // SSR (server, typically UTC in Docker) *and* during client hydration
+  // (visitor's local timezone). Without a fixed zone the two can format the
+  // same instant as different text, which is a React hydration mismatch
+  // (error #418) - confirmed live once a real "next match" (the only
+  // branch that calls this) finally showed up.
   const date = new Date(iso);
-  const dateStr = date.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
-  const timeStr = date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const dateStr = date.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "Europe/Berlin" });
+  const timeStr = date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
   return `${dateStr} · ${timeStr} Uhr`;
 }
 

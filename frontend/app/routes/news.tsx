@@ -2,7 +2,7 @@ import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
-import { imageFallback } from "~/lib/sampleAssets";
+import { imageFallback, bannerFallback } from "~/lib/sampleAssets";
 import { stripMarkdown } from "~/lib/markdown";
 import { getLanguageFromCookieHeader } from "~/i18n/config";
 import { fetchPageBackground } from "~/lib/siteSettings";
@@ -63,7 +63,11 @@ export default function NewsPage() {
   const newsArchive = newsArticles.slice(2);
 
   const formatDate = (dateString: string) => {
-    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+    // Explicit timeZone: this route is server-rendered (LoaderFunction), so
+    // without a fixed zone the server (UTC) and the visitor's browser could
+    // format the same instant as different text - a React hydration
+    // mismatch (error #418), same root cause fixed in MatchHighlightWidget.
+    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Berlin' };
     return new Date(dateString).toLocaleDateString(i18n.language === "en" ? "en-US" : "de-DE", options);
   };
 
@@ -71,7 +75,7 @@ export default function NewsPage() {
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
       <main>
         {/* Hero Section for News */}
-        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || "https://via.placeholder.com/1920x400?text=News+Banner"}')` }}>
+        <section className="relative py-20 md:py-32 bg-cover bg-center text-center" style={{ backgroundImage: `url('${backgroundUrl || bannerFallback("https://via.placeholder.com/1920x400?text=News+Banner")}')` }}>
           <div className="absolute inset-0 bg-black opacity-70"></div>
           <div className="relative z-10 container mx-auto px-4">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white mb-4 break-words">{t("hero.title")}</h1>
