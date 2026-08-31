@@ -6,7 +6,7 @@
 
 import { hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "./auth";
 
-export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers" | "praccs" | "communications";
+export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "leagues" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers" | "praccs" | "communications";
 
 export interface AdminNavItem {
   key: AdminNavKey;
@@ -55,6 +55,11 @@ export function getAdminNavItems(
   }
   if (isAdmin || canBlanketTeams) {
     items.push({ key: "teams", href: "/admin/teams", label: "Teams" });
+    // Org-wide (which FACEIT organizer a league syncs against affects every
+    // team registered under it), so this is blanket-access only, same tier
+    // as Team create/delete - never exposed to a plain Teammanager, unlike
+    // the "Matches"/FACEIT-team-ID section on their own team's edit page.
+    items.push({ key: "leagues", href: "/admin/leagues", label: "Ligen" });
   } else if (isTeamManager) {
     items.push({
       key: "teams",

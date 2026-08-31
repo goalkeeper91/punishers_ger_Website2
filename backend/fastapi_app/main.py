@@ -2822,26 +2822,172 @@ async def upload_player_image(
     await sync_to_async(_log_action)(current_user, "update", "Player", player.id, player.ingame_name, {"fields": ["image"]})
     return await build_player_schema(player)
 
-# --- Admin: manually-recorded matches ---
+# --- Admin: leagues (incl. FACEIT organizer/team IDs) & manually-recorded matches ---
 #
-# TeamFaceitMatch rows are normally only ever created by the FACEIT sync
-# (faceit_integration/sync.py), which needs League.faceit_organizer_id and
-# TeamLeagueEntry.faceit_team_id configured first - both of which were only
-# ever settable via Django's classic admin (unreachable in this deployment,
-# same root cause as the Content Creator fields before this). This section
-# lets an admin/Teammanager record a real result by hand instead (e.g. a
-# scrim, or a match FACEIT never had) - synthesized with a "manual-<uuid>"
-# faceit_match_id (that field is required+unique) so the real FACEIT sync
-# never touches or gets confused by these rows.
+# League.faceit_organizer_id and TeamLeagueEntry.faceit_team_id are what the
+# FACEIT auto-sync (faceit_integration/sync.py) actually needs to find a
+# team's matches - without them, sync_all_team_matches() either skips the
+# league entirely (no organizer_id) or finds no matches for it (no/wrong
+# faceit_team_id), silently, with no error to point at. Both fields were
+# only ever settable via Django's classic admin (unreachable in this
+# deployment, same root cause as the earlier Content Creator gap) - this
+# section is the replacement, plus the manual-match recording built earlier.
 
-class LeagueOption(BaseModel):
+class LeagueSchema(BaseModel):
     id: int
     name: str
+    short_name: Optional[str] = None
+    faceit_organizer_id: Optional[str] = None
+    description: Optional[str] = None
+    website_url: Optional[str] = None
 
-@app.get("/admin/leagues/", response_model=List[LeagueOption])
+class LeagueCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    short_name: Optional[str] = Field(None, max_length=20)
+    faceit_organizer_id: Optional[str] = Field(None, max_length=64)
+    description: Optional[str] = None
+    website_url: Optional[str] = Field(None, max_length=200)
+
+def build_league_schema(league: League) -> LeagueSchema:
+    return LeagueSchema(
+        id=league.id, name=league.name, short_name=league.short_name,
+        faceit_organizer_id=league.faceit_organizer_id,
+        description=league.description, website_url=league.website_url,
+    )
+
+@app.get("/admin/leagues/", response_model=List[LeagueSchema])
 async def get_leagues(current_user: CustomUser = Depends(require_team_management_access)):
     leagues = await sync_to_async(list)(League.objects.all().order_by('name'))
-    return [LeagueOption(id=l.id, name=l.name) for l in leagues]
+    return [build_league_schema(l) for l in leagues]
+
+@app.post("/admin/leagues/", response_model=LeagueSchema, status_code=status.HTTP_201_CREATED)
+async def create_league(payload: LeagueCreate, current_admin: CustomUser = Depends(require_blanket_team_access)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name erforderlich.")
+    if await sync_to_async(League.objects.filter(name=name).exists)():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Eine Liga mit diesem Namen existiert bereits.")
+    organizer_id = (payload.faceit_organizer_id or "").strip() or None
+    if organizer_id and await sync_to_async(League.objects.filter(faceit_organizer_id=organizer_id).exists)():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Diese FACEIT-Organizer-ID ist bereits einer anderen Liga zugeordnet.")
+
+    league = await sync_to_async(League.objects.create)(
+        name=name,
+        short_name=(payload.short_name or "").strip() or None,
+        faceit_organizer_id=organizer_id,
+        description=(payload.description or "").strip() or None,
+        website_url=(payload.website_url or "").strip() or None,
+    )
+    await sync_to_async(_log_action)(current_admin, "create", "League", league.id, league.name)
+    return build_league_schema(league)
+
+@app.put("/admin/leagues/{league_id}/", response_model=LeagueSchema)
+async def update_league(league_id: int, payload: LeagueCreate, current_admin: CustomUser = Depends(require_blanket_team_access)):
+    try:
+        league = await sync_to_async(League.objects.get)(id=league_id)
+    except League.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga nicht gefunden")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name erforderlich.")
+    if await sync_to_async(League.objects.filter(name=name).exclude(id=league_id).exists)():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Eine Liga mit diesem Namen existiert bereits.")
+    organizer_id = (payload.faceit_organizer_id or "").strip() or None
+    if organizer_id and await sync_to_async(League.objects.filter(faceit_organizer_id=organizer_id).exclude(id=league_id).exists)():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Diese FACEIT-Organizer-ID ist bereits einer anderen Liga zugeordnet.")
+
+    def _save():
+        league.name = name
+        league.short_name = (payload.short_name or "").strip() or None
+        league.faceit_organizer_id = organizer_id
+        league.description = (payload.description or "").strip() or None
+        league.website_url = (payload.website_url or "").strip() or None
+        league.save()
+        return league
+
+    league = await sync_to_async(_save)()
+    await sync_to_async(_log_action)(current_admin, "update", "League", league.id, league.name)
+    return build_league_schema(league)
+
+@app.delete("/admin/leagues/{league_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_league(league_id: int, current_admin: CustomUser = Depends(require_blanket_team_access)):
+    try:
+        league = await sync_to_async(League.objects.get)(id=league_id)
+    except League.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga nicht gefunden")
+    name = league.name
+    # Cascades to every TeamLeagueEntry (and through that, every
+    # TeamFaceitMatch, incl. manually-recorded ones) registered under this
+    # league - the frontend warns about this before submitting.
+    await sync_to_async(league.delete)()
+    await sync_to_async(_log_action)(current_admin, "delete", "League", league_id, name)
+
+class TeamLeagueEntrySchema(BaseModel):
+    id: int
+    league_id: int
+    league_name: str
+    faceit_team_id: Optional[str] = None
+
+class TeamLeagueEntryUpsert(BaseModel):
+    league_id: int
+    faceit_team_id: Optional[str] = Field(None, max_length=64)
+
+def build_league_entry_schema(entry: TeamLeagueEntry) -> TeamLeagueEntrySchema:
+    return TeamLeagueEntrySchema(
+        id=entry.id, league_id=entry.league_id, league_name=entry.league.name,
+        faceit_team_id=entry.faceit_team_id,
+    )
+
+@app.get("/admin/teams/{team_id}/league-entries/", response_model=List[TeamLeagueEntrySchema])
+async def get_team_league_entries(team_id: int, current_user: CustomUser = Depends(require_team_management_access)):
+    try:
+        team = await sync_to_async(Team.objects.get)(id=team_id)
+    except Team.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    await ensure_team_access(current_user, team)
+
+    def _collect():
+        return list(TeamLeagueEntry.objects.filter(team=team).select_related('league').order_by('league__name'))
+    entries = await sync_to_async(_collect)()
+    return [build_league_entry_schema(e) for e in entries]
+
+@app.put("/admin/teams/{team_id}/league-entries/", response_model=TeamLeagueEntrySchema)
+async def upsert_team_league_entry(
+    team_id: int,
+    payload: TeamLeagueEntryUpsert,
+    current_user: CustomUser = Depends(require_team_management_access),
+):
+    """Create-or-update a team's FACEIT registration for one league. To
+    de-register, save with an empty faceit_team_id rather than deleting the
+    row outright - deleting would cascade to every match (incl. manually
+    recorded ones) already stored under it; an empty faceit_team_id already
+    excludes the entry from the FACEIT sync (see sync.py sync_league_matches),
+    which is the only thing that actually matters here."""
+    try:
+        team = await sync_to_async(Team.objects.get)(id=team_id)
+    except Team.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    await ensure_team_access(current_user, team)
+
+    try:
+        league = await sync_to_async(League.objects.get)(id=payload.league_id)
+    except League.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Liga nicht gefunden")
+
+    def _save():
+        entry, _ = TeamLeagueEntry.objects.get_or_create(team=team, league=league)
+        entry.faceit_team_id = (payload.faceit_team_id or "").strip() or None
+        entry.save(update_fields=['faceit_team_id', 'updated_at'])
+        entry.league = league
+        return entry
+
+    entry = await sync_to_async(_save)()
+    await sync_to_async(_log_action)(
+        current_user, "update", "TeamLeagueEntry", entry.id, f"{team.name} / {league.name}",
+        {"faceit_team_id": entry.faceit_team_id},
+    )
+    return build_league_entry_schema(entry)
 
 class TeamMatchMapSchema(BaseModel):
     id: int

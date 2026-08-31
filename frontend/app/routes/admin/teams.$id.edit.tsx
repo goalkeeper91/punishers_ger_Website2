@@ -35,6 +35,13 @@ interface LeagueOption {
   name: string;
 }
 
+interface TeamLeagueEntry {
+  id: number;
+  league_id: number;
+  league_name: string;
+  faceit_team_id: string | null;
+}
+
 interface TeamMatchMap {
   id: number;
   map_name: string | null;
@@ -106,14 +113,17 @@ export const clientLoader: ClientLoaderFunction = async ({ params }) => {
 
   let leagues: LeagueOption[] = [];
   let matches: TeamMatch[] = [];
-  const [leaguesResponse, matchesResponse] = await Promise.all([
+  let leagueEntries: TeamLeagueEntry[] = [];
+  const [leaguesResponse, matchesResponse, leagueEntriesResponse] = await Promise.all([
     authFetch("/admin/leagues/"),
     authFetch(`/admin/teams/${params.id}/matches/`),
+    authFetch(`/admin/teams/${params.id}/league-entries/`),
   ]);
   if (leaguesResponse.ok) leagues = await leaguesResponse.json();
   if (matchesResponse.ok) matches = await matchesResponse.json();
+  if (leagueEntriesResponse.ok) leagueEntries = await leagueEntriesResponse.json();
 
-  return { team, availableUsers, leagues, matches };
+  return { team, availableUsers, leagues, matches, leagueEntries };
 };
 
 export function HydrateFallback() {
@@ -209,6 +219,27 @@ export const clientAction: ClientActionFunction = async ({ request, params }) =>
         throw new Error(extractErrorMessage(errorData, `HTTP error! status: ${response.status}`));
       }
       return { success: "Spieler aus dem Roster entfernt." };
+    }
+
+    if (intent === "saveFaceitRegistration") {
+      const leagueId = formData.get("league_id");
+      const faceitTeamId = formData.get("faceit_team_id");
+      if (typeof leagueId !== "string" || !leagueId) {
+        return { errors: { faceit: "Bitte eine Liga auswählen." } };
+      }
+      const response = await authFetch(`/admin/teams/${params.id}/league-entries/`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          league_id: Number(leagueId),
+          faceit_team_id: (faceitTeamId as string)?.trim() || null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        return { errors: { faceit: extractErrorMessage(data, "FACEIT-Registrierung konnte nicht gespeichert werden.") } };
+      }
+      return { success: "FACEIT-Registrierung gespeichert." };
     }
 
     if (intent === "addMatch") {
@@ -404,11 +435,12 @@ function AddMatchForm({ leagues, isSubmitting, success, error }: { leagues: Leag
 }
 
 export default function AdminTeamEditPage() {
-  const { team, availableUsers, leagues, matches } = useLoaderData() as {
+  const { team, availableUsers, leagues, matches, leagueEntries } = useLoaderData() as {
     team: Team;
     availableUsers: AvailableUser[];
     leagues: LeagueOption[];
     matches: TeamMatch[];
+    leagueEntries: TeamLeagueEntry[];
   };
   const actionData = useActionData() as
     | { error?: string; success?: string; errors?: { [key: string]: string } }
@@ -575,6 +607,48 @@ export default function AdminTeamEditPage() {
                 Zum Roster hinzufügen
               </button>
             </div>
+          </Form>
+        </div>
+
+        {/* FACEIT-Registrierung */}
+        <div className="bg-gray-800 p-8 rounded-lg shadow-xl mt-8">
+          <h2 className="text-2xl font-bold text-white mb-2">FACEIT-Registrierung</h2>
+          <p className="text-sm text-gray-400 mb-6">
+            Damit der automatische Match-Abgleich für dieses Team in einer Liga funktioniert, braucht die Liga selbst eine FACEIT-Organizer-ID (siehe <a href="/admin/leagues" className="text-red-400 hover:text-red-300">Ligenverwaltung</a>) <strong>und</strong> das Team hier die passende FACEIT-Team-ID für diese Liga.
+          </p>
+          <ul className="divide-y divide-gray-700 mb-6">
+            {leagueEntries.filter((e) => e.faceit_team_id).map((entry) => (
+              <li key={entry.id} className="py-2 text-sm text-gray-300">
+                {entry.league_name}: <span className="text-gray-400">{entry.faceit_team_id}</span>
+              </li>
+            ))}
+            {leagueEntries.filter((e) => e.faceit_team_id).length === 0 && (
+              <li className="py-2 text-sm text-gray-400">Für dieses Team ist noch keine FACEIT-Team-ID hinterlegt.</li>
+            )}
+          </ul>
+
+          <h3 className="text-lg font-bold text-white mb-4">FACEIT-Team-ID setzen</h3>
+          <Form method="post" className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <input type="hidden" name="_intent" value="saveFaceitRegistration" />
+            <div>
+              <label htmlFor="faceit_league_id" className="block text-sm font-medium text-gray-300 mb-1">Liga <span className="text-red-500">*</span></label>
+              <select id="faceit_league_id" name="league_id" required defaultValue="" className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm">
+                <option value="" disabled>Bitte wählen...</option>
+                {leagues.map((league) => (
+                  <option key={league.id} value={league.id}>{league.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="faceit_team_id" className="block text-sm font-medium text-gray-300 mb-1">FACEIT-Team-ID</label>
+              <input type="text" id="faceit_team_id" name="faceit_team_id" placeholder="leer lassen zum Entfernen" className="block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm" />
+            </div>
+            <div>
+              <button type="submit" disabled={isSubmitting || leagues.length === 0} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                Speichern
+              </button>
+            </div>
+            {actionData?.errors?.faceit && <p className="md:col-span-3 text-sm text-red-500">{actionData.errors.faceit}</p>}
           </Form>
         </div>
 

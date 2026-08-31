@@ -33,6 +33,7 @@ export default [
   route("/admin/news/new", "routes/admin/news.new.tsx"), // Admin: create news article
   route("/admin/news/:id/edit", "routes/admin/news.$id.edit.tsx"), // Admin: edit news article
   route("/admin/teams", "routes/admin/teams.tsx"), // Admin team list
+  route("/admin/leagues", "routes/admin/leagues.tsx"), // Admin: leagues incl. FACEIT organizer IDs (org-wide, not Teammanager-scoped)
   route("/admin/teams/new", "routes/admin/teams.new.tsx"), // Admin: create team
   route("/admin/teams/:id/edit", "routes/admin/teams.$id.edit.tsx"), // Admin: edit team & roster
   route("/admin/players/:id/edit", "routes/admin/players.$id.edit.tsx"), // Admin: edit a single player
