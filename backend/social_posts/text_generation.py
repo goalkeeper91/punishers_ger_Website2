@@ -82,6 +82,36 @@ PLATFORM_INSTRUCTIONS = {
 }
 
 
+# Per-game hashtag, same keyword-matching idea as image_generation.py's
+# GAME_STYLES (kept separate/duplicated rather than shared - that dict also
+# carries colors this module has no use for, and the keyword sets only
+# need to agree loosely, not be a single source of truth).
+_GAME_HASHTAGS: list[tuple[tuple[str, ...], str]] = [
+    (("cs2", "counter-strike", "counter strike"), "#CS2"),
+    (("valorant",), "#Valorant"),
+    (("league of legends", "lol"), "#LoL"),
+    (("rocket league",), "#RocketLeague"),
+    (("rainbow six", "r6", "siege"), "#R6"),
+]
+
+
+def _fallback_hashtags(ctx: MatchContext, count: int) -> str:
+    """A guaranteed-present hashtag line, used only when the model's own
+    response didn't include any (see generate_post_texts) - PLATFORM_
+    INSTRUCTIONS above already asks for hashtags, but a small local model
+    (llama3.2:3b, no GPU on this box) doesn't reliably follow every
+    formatting instruction in a long prompt, and "no hashtags at all" is
+    worse for reach than "the same handful every time"."""
+    tags = ["#PunishersGermany"]
+    game_lower = (ctx.game or "").lower()
+    for keywords, tag in _GAME_HASHTAGS:
+        if any(kw in game_lower for kw in keywords):
+            tags.append(tag)
+            break
+    tags += ["#Esport", "#Gaming", "#Team"]
+    return " ".join(tags[:count])
+
+
 def _build_prompt(platform: str, ctx: MatchContext) -> str:
     intent = (
         "Kündige das folgende bevorstehende Match an, baue Vorfreude/Hype auf."
@@ -106,11 +136,18 @@ def generate_post_texts(ctx: MatchContext) -> tuple[dict[str, str], dict[str, st
     needing server log access - a bare "fehlt für: ..." with no reason was
     the previous behavior and wasn't enough to debug a real misconfig."""
     client = OllamaClient()  # raises OllamaError immediately if unconfigured
+    # Only facebook/instagram get an enforced fallback - x's own instructions
+    # cap it at 2 hashtags in an already very tight character budget, where
+    # a guaranteed-but-generic line would cost more than it's worth.
+    fallback_counts = {"facebook": 3, "instagram": 5}
     texts: dict[str, str] = {}
     errors: dict[str, str] = {}
     for platform in ("facebook", "instagram", "x"):
         try:
-            texts[platform] = client.generate(_build_prompt(platform, ctx))
+            text = client.generate(_build_prompt(platform, ctx))
+            if platform in fallback_counts and "#" not in text:
+                text = f"{text}\n\n{_fallback_hashtags(ctx, fallback_counts[platform])}"
+            texts[platform] = text
         except OllamaError as exc:
             logger.exception("Ollama-Textgenerierung für Plattform '%s' fehlgeschlagen", platform)
             errors[platform] = str(exc)
