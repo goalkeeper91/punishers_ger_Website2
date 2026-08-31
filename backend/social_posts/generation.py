@@ -58,13 +58,21 @@ def generate_draft(
         errors.append(f"Bild: {exc}")
 
     try:
-        texts = generate_post_texts(ctx)
+        texts, text_errors = generate_post_texts(ctx)
         draft.text_facebook = texts.get("facebook", "")
         draft.text_instagram = texts.get("instagram", "")
         draft.text_x = texts.get("x", "")
-        missing = [p for p in ("facebook", "instagram", "x") if p not in texts]
-        if missing:
-            errors.append(f"Text fehlt für: {', '.join(missing)}")
+        if text_errors:
+            # All three platforms usually fail for the identical reason
+            # (Ollama unreachable/misconfigured) - collapse to one message
+            # instead of repeating it three times; only fall back to a
+            # per-platform breakdown when the failures actually differ.
+            unique_messages = list(dict.fromkeys(text_errors.values()))
+            if len(unique_messages) == 1:
+                errors.append(f"Text fehlt für {', '.join(text_errors)}: {unique_messages[0]}")
+            else:
+                detail = "; ".join(f"{platform}: {message}" for platform, message in text_errors.items())
+                errors.append(f"Text fehlt für {', '.join(text_errors)} ({detail})")
     except OllamaError as exc:
         # Most commonly OLLAMA_BASE_URL just isn't configured - not a real
         # error worth alarming over, the image-only draft is still useful.

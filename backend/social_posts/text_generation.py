@@ -96,16 +96,22 @@ def _build_prompt(platform: str, ctx: MatchContext) -> str:
     )
 
 
-def generate_post_texts(ctx: MatchContext) -> dict[str, str]:
-    """Returns {"facebook": ..., "instagram": ..., "x": ...} - a platform
-    missing from the result means its generation call failed; the caller
-    (generation.py) decides how to surface that (e.g. leaving that field
-    blank on the draft, recording generation_error)."""
+def generate_post_texts(ctx: MatchContext) -> tuple[dict[str, str], dict[str, str]]:
+    """Returns (texts, errors) - texts has {"facebook": ..., "instagram":
+    ..., "x": ...} for whichever platforms succeeded; errors has the actual
+    OllamaError message for whichever didn't (platform missing from texts
+    <=> present in errors). The caller (generation.py) folds errors into
+    the draft's generation_error so a failure is diagnosable from the admin
+    UI itself (e.g. via the manual "jetzt generieren" trigger) instead of
+    needing server log access - a bare "fehlt für: ..." with no reason was
+    the previous behavior and wasn't enough to debug a real misconfig."""
     client = OllamaClient()  # raises OllamaError immediately if unconfigured
     texts: dict[str, str] = {}
+    errors: dict[str, str] = {}
     for platform in ("facebook", "instagram", "x"):
         try:
             texts[platform] = client.generate(_build_prompt(platform, ctx))
-        except OllamaError:
+        except OllamaError as exc:
             logger.exception("Ollama-Textgenerierung für Plattform '%s' fehlgeschlagen", platform)
-    return texts
+            errors[platform] = str(exc)
+    return texts, errors
