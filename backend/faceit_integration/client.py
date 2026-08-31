@@ -96,18 +96,30 @@ class FaceitClient:
 
     def get_organizer_championships(
         self, organizer_id: str, game_id: Optional[str] = None, offset: int = 0, limit: int = 50,
-        sort: str = "-createdAt",
+        sort: str = "-createdAt", published_only: bool = False,
     ) -> dict[str, Any]:
         """GET /organizers/{organizer_id}/championships - all championships
         (seasons) run by this organizer, e.g. every "DACH CS Season N".
+
         Defaults to newest-first (per the endpoint's swagger spec, `sort`
         accepts "+createdAt"/"-createdAt") - confirmed live that without an
         explicit sort, results aren't reliably ordered by recency at all,
         so an organizer running many parallel divisions/cups could bury an
         already-started, current championship anywhere in the list. With
         newest-first, a real pagination cap (see sync.py
-        MAX_CHAMPIONSHIP_PAGES) reliably still reaches anything current."""
-        params: dict[str, Any] = {"offset": offset, "limit": limit, "sort": sort}
+        MAX_CHAMPIONSHIP_PAGES) reliably still reaches anything current.
+
+        `publishedOnly` defaults to true on FACEIT's side and we override it
+        to false here: confirmed live that a real, currently-running
+        championship (org-confirmed correct organizer_id, sort fix in
+        place, well within the pagination cap) was still never returned at
+        all - the third-party league's own division/season apparently
+        isn't flagged "published" in FACEIT's system even though it's a
+        real, active competition, so the default would silently drop it no
+        matter how sorting/pagination are tuned."""
+        params: dict[str, Any] = {
+            "offset": offset, "limit": limit, "sort": sort, "publishedOnly": str(published_only).lower(),
+        }
         if game_id:
             params["game_id"] = game_id
         return self._get(f"/organizers/{organizer_id}/championships", params=params)
