@@ -43,6 +43,16 @@ KEEP_ALIVE = "5m"
 # matter which thread, shares this one lock.
 _call_lock = threading.Lock()
 
+# Ollama's own default temperature (~0.8) favors creative/varied phrasing -
+# fine for a chatbot, a liability here: this content has to stay factually
+# grounded (team/score/date must be exactly right, nothing invented), and a
+# higher temperature makes a small model more likely to wander off-script
+# into fabricated details (confirmed live: an unprompted "auf dem Weg zu
+# unserem 2. Titel" that wasn't in the facts at all). Lower trades away a
+# little variety for staying on-topic more reliably - a reasonable trade
+# for a sports-results generator, less so for a general chat assistant.
+TEMPERATURE = 0.35
+
 
 class OllamaError(Exception):
     """Raised for missing config, non-2xx responses, or network failures."""
@@ -68,7 +78,10 @@ class OllamaClient:
             with _call_lock:
                 response = requests.post(
                     f"{self.base_url}/api/generate",
-                    json={"model": self.model, "prompt": prompt, "stream": False, "keep_alive": KEEP_ALIVE},
+                    json={
+                        "model": self.model, "prompt": prompt, "stream": False, "keep_alive": KEEP_ALIVE,
+                        "options": {"temperature": TEMPERATURE},
+                    },
                     timeout=DEFAULT_TIMEOUT,
                 )
         except requests.RequestException as exc:

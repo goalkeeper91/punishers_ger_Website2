@@ -285,9 +285,18 @@ def generate_social_post_draft_for_series(matches: list[TeamFaceitMatch], post_t
         team_maps_won = opponent_maps_won = None
         if post_type == "result":
             team_maps_won, opponent_maps_won = match.team_score, match.opponent_score
-        maps_summary = None
-        if match.map_name and match.team_score is not None and match.opponent_score is not None:
-            maps_summary = f"{match.map_name} {match.team_score}:{match.opponent_score}"
+        # match.team_score/opponent_score is the SERIES score (maps won -
+        # see team_maps_won/opponent_maps_won two lines up, same fields).
+        # Pairing match.map_name with that score here as if it were that
+        # one map's own result was wrong and confirmed live: a Bo3 synced
+        # as this single row produced a generated post claiming "2:1 auf
+        # de_nuke", when 2:1 was the series result and de_nuke only the
+        # (veto-picked, not necessarily deciding) map name - a FACEIT
+        # match_id can cover a whole multi-map series, not just one map.
+        # Just the bare map name, unscored, until real per-map results are
+        # available (see generate_social_post_draft_for_series's
+        # docstring on the still-missing /matches/{id}/stats breakdown).
+        maps_summary = match.map_name or None
         maps_struct = None
         match_datetime = match.finished_at if post_type == "result" else match.scheduled_at
 

@@ -59,7 +59,16 @@ class MatchContext:
             if self.team_maps_won is not None and self.opponent_maps_won is not None:
                 lines.append(f"Ergebnis: {self.result_word} ({self.team_maps_won}:{self.opponent_maps_won} Maps)")
             if self.maps_summary:
-                lines.append(f"Maps im Detail: {self.maps_summary}")
+                # maps_summary is either one bare map name (FACEIT-synced
+                # single row - see faceit_integration/sync.py) or a real
+                # "name score, name score, ..." list (manually-recorded
+                # multi-map series) - phrased vaguely enough to cover both
+                # without implying the bare-name case has its own score
+                # attached (a previous wording, "Maps im Detail:", led the
+                # model to pair a single map name with the Ergebnis line's
+                # SERIES score above as if it were that map's own result -
+                # confirmed live, produced a nonsensical "2:1 auf de_nuke").
+                lines.append(f"Map-Info: {self.maps_summary}")
         return "\n".join(lines)
 
 
@@ -121,7 +130,13 @@ def _build_prompt(platform: str, ctx: MatchContext) -> str:
     return (
         f"{PLATFORM_INSTRUCTIONS[platform]}\n\n"
         f"{intent}\n\n"
-        f"Fakten (nutze nur diese, erfinde nichts dazu):\n{ctx.facts_block()}\n\n"
+        f"Fakten (dies ist ALLES was du weißt):\n{ctx.facts_block()}\n\n"
+        "Wichtige Regeln:\n"
+        "- Nutze NUR die obigen Fakten. Erfinde keine zusätzlichen Details - keine Turniertitel, "
+        "Serien-/Siegesstrecken, Historie, Rivalitäten oder Zahlen, die dort nicht explizit stehen. "
+        "Wenn du unsicher bist, ob etwas stimmt, lass es weg statt es zu erwähnen.\n"
+        "- Schreibe in natürlichem, grammatikalisch korrektem Deutsch - keine wörtlich aus dem "
+        "Englischen übersetzt klingenden Redewendungen.\n\n"
         "Gib NUR den fertigen Post-Text zurück, ohne Anführungszeichen, ohne Erklärung, ohne Vorspann."
     )
 
