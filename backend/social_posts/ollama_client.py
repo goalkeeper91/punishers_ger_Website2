@@ -81,6 +81,19 @@ class OllamaClient:
                     json={
                         "model": self.model, "prompt": prompt, "stream": False, "keep_alive": KEEP_ALIVE,
                         "options": {"temperature": TEMPERATURE},
+                        # Reasoning-capable models (Qwen3 and friends) default
+                        # to generating a hidden <think>...</think> chain
+                        # before the actual answer - a lot more tokens, a
+                        # lot more CPU time on a GPU-less box. Confirmed
+                        # live: switching to qwen3:4b without this caused
+                        # every call to blow through the 180s timeout and,
+                        # worse, pegged Ollama's CPU badly enough to take
+                        # the whole shared host down, not just this
+                        # feature. Ollama ignores "think" for models that
+                        # don't support it (e.g. llama3.2:3b), so this is a
+                        # no-op today and a safety net for the next model
+                        # swap.
+                        "think": False,
                     },
                     timeout=DEFAULT_TIMEOUT,
                 )

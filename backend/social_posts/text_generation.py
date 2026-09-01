@@ -136,7 +136,10 @@ def _build_prompt(platform: str, ctx: MatchContext) -> str:
         "Serien-/Siegesstrecken, Historie, Rivalitäten oder Zahlen, die dort nicht explizit stehen. "
         "Wenn du unsicher bist, ob etwas stimmt, lass es weg statt es zu erwähnen.\n"
         "- Schreibe in natürlichem, grammatikalisch korrektem Deutsch - keine wörtlich aus dem "
-        "Englischen übersetzt klingenden Redewendungen.\n\n"
+        "Englischen übersetzt klingenden Redewendungen.\n"
+        "- Sprich die Community IMMER informell mit 'du'/'ihr' an, NIEMALS mit der Höflichkeitsform "
+        "'Sie'/'Ihnen' - das ist eine Gaming-Community, keine Behörde. Bleib bei EINER Anredeform, "
+        "wechsle nicht innerhalb des Posts.\n\n"
         "Gib NUR den fertigen Post-Text zurück, ohne Anführungszeichen, ohne Erklärung, ohne Vorspann."
     )
 
