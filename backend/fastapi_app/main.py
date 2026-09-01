@@ -4975,9 +4975,36 @@ async def get_available_matches_for_social_posts(
 class SocialPostGenerateRequest(BaseModel):
     match_id: int
 
-@app.post("/admin/social-posts/generate/", response_model=SocialPostDraftSchema, status_code=status.HTTP_201_CREATED)
+class SocialPostGenerateTriggerResult(BaseModel):
+    started: bool
+
+def _generate_social_post_for_match_id(match_id: int) -> None:
+    """The actual background work for trigger_social_post_generation below -
+    split out so it can run as a BackgroundTask instead of blocking the
+    request. Never raises - a bad match_id or a failed generation just
+    means no new draft appears; there's nothing left to report back to by
+    the time this runs (see the endpoint's docstring for why it can't
+    return the finished draft directly)."""
+    try:
+        match = TeamFaceitMatch.objects.select_related('league_entry__team', 'league_entry__league').get(id=match_id)
+    except TeamFaceitMatch.DoesNotExist:
+        logger.warning("Manueller Social-Post-Trigger: Match %s nicht gefunden", match_id)
+        return
+    if match.series_id:
+        series = list(
+            TeamFaceitMatch.objects.filter(series_id=match.series_id)
+            .select_related('league_entry__team', 'league_entry__league')
+            .order_by('id')
+        )
+    else:
+        series = [match]
+    post_type = "result" if match.status == "finished" else "announcement"
+    faceit_sync.generate_social_post_draft_for_series(series, post_type)
+
+@app.post("/admin/social-posts/generate/", response_model=SocialPostGenerateTriggerResult, status_code=status.HTTP_202_ACCEPTED)
 async def trigger_social_post_generation(
     payload: SocialPostGenerateRequest,
+    background_tasks: BackgroundTasks,
     current_admin: CustomUser = Depends(require_permission("social_posts.manage_social_posts")),
 ):
     """Manual trigger for the dropdown+button on /admin/social-posts - draft
@@ -4987,31 +5014,22 @@ async def trigger_social_post_generation(
     AvailableMatchSchema.id); its series_id, if any, pulls in the rest of
     that series. post_type is derived from the match's own status - never
     client-supplied - so a finished match can't accidentally get drafted
-    as an announcement or vice versa."""
-    def _generate():
-        try:
-            match = TeamFaceitMatch.objects.select_related('league_entry__team', 'league_entry__league').get(id=payload.match_id)
-        except TeamFaceitMatch.DoesNotExist:
-            return None, None
-        if match.series_id:
-            series = list(
-                TeamFaceitMatch.objects.filter(series_id=match.series_id)
-                .select_related('league_entry__team', 'league_entry__league')
-                .order_by('id')
-            )
-        else:
-            series = [match]
-        post_type = "result" if match.status == "finished" else "announcement"
-        draft = faceit_sync.generate_social_post_draft_for_series(series, post_type)
-        return draft, match
+    as an announcement or vice versa.
 
-    draft, match = await sync_to_async(_generate)()
-    if match is None:
+    Backgrounded, same reasoning (and same 504 the synchronous version
+    actually produced live) as trigger_faceit_sync below - generation makes
+    up to 3 sequential CPU-only Ollama calls (each up to 180s, see
+    social_posts/ollama_client.py) plus rendering the image, easily past a
+    reverse proxy's timeout. Only a quick existence check happens
+    synchronously here; unlike the FACEIT sync trigger there's no run/id to
+    poll for completion, so the frontend just revalidates the drafts list a
+    little later instead."""
+    exists = await sync_to_async(TeamFaceitMatch.objects.filter(id=payload.match_id).exists)()
+    if not exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match nicht gefunden")
-    if draft is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Entwurf-Generierung fehlgeschlagen")
-    await sync_to_async(_log_action)(current_admin, "generate", "SocialPostDraft", draft.id, draft.opponent_name)
-    return build_social_post_draft_schema(draft)
+    background_tasks.add_task(_generate_social_post_for_match_id, payload.match_id)
+    await sync_to_async(_log_action)(current_admin, "generate", "SocialPostDraft", payload.match_id, None, {"async": True})
+    return SocialPostGenerateTriggerResult(started=True)
 
 @app.post("/admin/social-posts/{draft_id}/regenerate/", response_model=SocialPostDraftSchema)
 async def regenerate_social_post_draft(

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ClientActionFunction, ClientLoaderFunction } from "react-router";
-import { useActionData, useLoaderData, useNavigation, redirect, useSubmit } from "react-router";
+import { useActionData, useLoaderData, useNavigation, useRevalidator, redirect, useSubmit } from "react-router";
 import { authFetch, isLoggedIn } from "~/lib/auth";
 import { extractErrorMessage } from "~/lib/errors";
 import AdminNav from "~/components/AdminNav";
@@ -88,7 +88,11 @@ export const clientAction: ClientActionFunction = async ({ request }) => {
       });
       const data = await response.json();
       if (!response.ok) return { error: extractErrorMessage(data, "Entwurf konnte nicht generiert werden.") };
-      return { success: "Entwurf generiert." };
+      // Generation itself runs backgrounded server-side (can take a while -
+      // up to 3 sequential local-LLM calls) - this response only confirms
+      // it started, the draft doesn't exist yet. See the auto-revalidation
+      // in AdminSocialPostsPage below for picking it up once it's done.
+      return { success: "Entwurf wird im Hintergrund generiert - erscheint in ca. 20-40 Sekunden automatisch unten.", generating: true };
     }
     if (intent === "regenerate") {
       const response = await authFetch(`/admin/social-posts/${id}/regenerate/`, { method: "POST" });
@@ -309,9 +313,22 @@ function ManualGenerateForm({ availableMatches, isSubmitting }: { availableMatch
 
 export default function AdminSocialPostsPage() {
   const { drafts, availableMatches } = useLoaderData() as { drafts: SocialPostDraft[]; availableMatches: AvailableMatch[] };
-  const actionData = useActionData() as { error?: string; success?: string } | undefined;
+  const actionData = useActionData() as { error?: string; success?: string; generating?: boolean } | undefined;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
+  const revalidator = useRevalidator();
+
+  // Generation runs backgrounded server-side (see the "generate" clientAction
+  // above) - the draft doesn't exist yet when this success message shows up,
+  // so re-fetch the list a couple of times to pick it up once it's done,
+  // instead of making the admin manually reload the page.
+  useEffect(() => {
+    if (!actionData?.generating) return;
+    const timers = [10_000, 25_000, 45_000].map((delay) =>
+      setTimeout(() => revalidator.revalidate(), delay)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [actionData]);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans py-12">
