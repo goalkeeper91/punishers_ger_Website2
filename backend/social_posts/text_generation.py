@@ -133,15 +133,44 @@ def _build_prompt(platform: str, ctx: MatchContext) -> str:
         f"Fakten (dies ist ALLES was du weißt):\n{ctx.facts_block()}\n\n"
         "Wichtige Regeln:\n"
         "- Nutze NUR die obigen Fakten. Erfinde keine zusätzlichen Details - keine Turniertitel, "
-        "Serien-/Siegesstrecken, Historie, Rivalitäten oder Zahlen, die dort nicht explizit stehen. "
-        "Wenn du unsicher bist, ob etwas stimmt, lass es weg statt es zu erwähnen.\n"
+        "Serien-/Siegesstrecken, Historie, Rivalitäten, Zahlen oder Szenen (z.B. 'wir sind gerade auf "
+        "dem Weg dorthin'), die dort nicht explizit stehen. Wenn du unsicher bist, ob etwas stimmt, "
+        "lass es weg statt es zu erwähnen.\n"
         "- Schreibe in natürlichem, grammatikalisch korrektem Deutsch - keine wörtlich aus dem "
         "Englischen übersetzt klingenden Redewendungen.\n"
-        "- Sprich die Community IMMER informell mit 'du'/'ihr' an, NIEMALS mit der Höflichkeitsform "
-        "'Sie'/'Ihnen' - das ist eine Gaming-Community, keine Behörde. Bleib bei EINER Anredeform, "
-        "wechsle nicht innerhalb des Posts.\n\n"
+        "- Adressiere die Leser AUSSCHLIESSLICH mit 'ihr'/'euch' (Plural, du sprichst eine ganze "
+        "Community an, keine einzelne Person) - NIEMALS 'du'/'dich' (Singular) und NIEMALS die "
+        "Höflichkeitsform 'Sie'/'Ihnen'. Genau eine Anredeform im ganzen Post, kein Wechsel.\n"
+        "- Sprich als das Team ('wir'), niemals als Einzelperson ('ich').\n"
+        "- Gib NUR den reinen Text zurück, OHNE ihn in Anführungszeichen einzupacken.\n\n"
         "Gib NUR den fertigen Post-Text zurück, ohne Anführungszeichen, ohne Erklärung, ohne Vorspann."
     )
+
+
+_QUOTE_CHARS = '"\'„“”‚‘’»«'
+
+
+def _strip_wrapping_quotes(text: str) -> str:
+    """The prompt explicitly says not to wrap the response in quotation
+    marks, but a model doesn't always comply (confirmed live) - relying on
+    prompt compliance alone isn't reliable enough for something this cheap
+    to just fix outright. Only acts when the text STARTS with a quote
+    character - a post that happens to contain a quote somewhere in the
+    middle (e.g. quoting someone) is left untouched. The closing quote
+    isn't assumed to be the very last character either: a model sometimes
+    tacks on a hashtag after the closing quote (confirmed live: '"...text
+    ..." #Hashtag') - so this finds the LAST quote-like character anywhere
+    in the text and treats everything after it (if any) as trailing
+    content to keep, not part of the quoted body."""
+    text = text.strip()
+    if not text or text[0] not in _QUOTE_CHARS:
+        return text
+    closing_idx = max((text.rfind(ch) for ch in _QUOTE_CHARS), default=-1)
+    if closing_idx <= 0:
+        return text  # no matching closing quote found - leave the lone leading one alone
+    inner = text[1:closing_idx].strip()
+    trailing = text[closing_idx + 1:].strip()
+    return f"{inner} {trailing}".strip() if trailing else inner
 
 
 def generate_post_texts(ctx: MatchContext) -> tuple[dict[str, str], dict[str, str]]:
@@ -162,7 +191,7 @@ def generate_post_texts(ctx: MatchContext) -> tuple[dict[str, str], dict[str, st
     errors: dict[str, str] = {}
     for platform in ("facebook", "instagram", "x"):
         try:
-            text = client.generate(_build_prompt(platform, ctx))
+            text = _strip_wrapping_quotes(client.generate(_build_prompt(platform, ctx)))
             if platform in fallback_counts and "#" not in text:
                 text = f"{text}\n\n{_fallback_hashtags(ctx, fallback_counts[platform])}"
             texts[platform] = text
