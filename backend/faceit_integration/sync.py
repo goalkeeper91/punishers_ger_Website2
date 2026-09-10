@@ -233,7 +233,16 @@ def _announce_match_result(match: TeamFaceitMatch) -> None:
     mappings = AnnouncementChannelMapping.objects.filter(
         event_type="match_result", guild__is_active=True
     ).select_related("guild")
+    # The (guild, event_type) unique constraint on the model stops one guild
+    # from mapping the same event twice - but not two *different* guilds
+    # pointing their match_result mapping at the same physical channel, which
+    # would then get every result posted once per mapping. Dedupe by
+    # channel_id so that misconfiguration can't produce duplicate posts.
+    seen_channels: set[str] = set()
     for mapping in mappings:
+        if mapping.channel_id in seen_channels:
+            continue
+        seen_channels.add(mapping.channel_id)
         publish_notification(
             event_type="match_result",
             guild=mapping.guild,
