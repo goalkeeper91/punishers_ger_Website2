@@ -56,7 +56,13 @@ from social_posts.models import SocialPostDraft
 from social_posts import generation as social_post_generation
 from faceit_integration import sync as faceit_sync
 from faceit_integration.client import FaceitClient, FaceitAPIError
-from faceit_integration.models import FaceitSyncRun, TeamFaceitMatch, PlayerMatchStats
+from faceit_integration.models import (
+    FaceitSyncRun,
+    TeamFaceitMatch,
+    PlayerMatchStats,
+    MatchBroadcast,
+    broadcast_live_window_q,
+)
 from faceit_integration.scheduler import start_scheduler, stop_scheduler
 from twitch_integration.client import TwitchClient, TwitchAPIError, extract_twitch_login
 from twitch_integration.scheduler import start_scheduler as start_twitch_live_scheduler, stop_scheduler as stop_twitch_live_scheduler
@@ -2552,6 +2558,57 @@ async def get_creators():
         ))
     return result
 
+# --- Public live broadcast (site-wide "match is live" popup) ---
+
+class LiveBroadcast(BaseModel):
+    faceit_match_id: str
+    team_name: str
+    opponent_name: Optional[str] = None
+    competition_name: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    caster_url: str
+    caster_login: str = ""
+    stream_title: str = ""
+    stream_game: str = ""
+    viewer_count: Optional[int] = None
+    thumbnail_url: str = ""
+
+@app.get("/matches/live/", response_model=Optional[LiveBroadcast])
+async def get_live_broadcast():
+    """The currently-live, externally-cast match (if any), for the site-wide
+    live popup. Reads only the cache the Twitch poller
+    (twitch_integration/scheduler.py) maintains on MatchBroadcast - never
+    calls Twitch itself - and additionally gates on the same live window
+    (15 min before scheduled start .. 15 min after finish) so a stale
+    is_live never lingers past it. Public: no login required."""
+    def _load():
+        now = datetime.now(timezone.utc)
+        broadcast = (
+            MatchBroadcast.objects.filter(is_live=True)
+            .filter(broadcast_live_window_q(now))
+            .select_related("match__league_entry__team")
+            .order_by("match__scheduled_at")
+            .first()
+        )
+        if not broadcast:
+            return None
+        match = broadcast.match
+        return LiveBroadcast(
+            faceit_match_id=match.faceit_match_id,
+            team_name=match.league_entry.team.name,
+            opponent_name=match.opponent_name,
+            competition_name=match.competition_name,
+            scheduled_at=match.scheduled_at.isoformat() if match.scheduled_at else None,
+            caster_url=broadcast.caster_url,
+            caster_login=broadcast.caster_login,
+            stream_title=broadcast.stream_title,
+            stream_game=broadcast.stream_game,
+            viewer_count=broadcast.viewer_count,
+            thumbnail_url=broadcast.thumbnail_url,
+        )
+
+    return await sync_to_async(_load)()
+
 # --- Admin team & player management ---
 
 @app.post("/admin/teams/", response_model=TeamSchema, status_code=status.HTTP_201_CREATED)
@@ -4164,6 +4221,135 @@ def build_pracc_schema(pracc: Pracc) -> PraccSchema:
         map_pool_config_id=pracc.map_pool_config_id,
         map_pool_config_label=pracc.map_pool_config.label if pracc.map_pool_config_id else None,
     )
+
+# --- Admin: external match casters (site-wide live popup) ---
+
+async def _resolve_broadcast_team_scope(current_user: CustomUser) -> Optional[int]:
+    """None = full access (superuser or social_posts.manage_social_posts
+    holder). Otherwise the single team_id a Teammanager's caster access is
+    scoped to. Raises 403 for anyone else - mirrors
+    _resolve_pracc_team_scope() below."""
+    if current_user.is_superuser:
+        return None
+    has_social = await sync_to_async(current_user.has_perm)("social_posts.manage_social_posts")
+    if has_social:
+        return None
+    user_roles = await sync_to_async(lambda: set(current_user.roles))()
+    if ROLE_TEAM_MANAGER in user_roles and current_user.team_id:
+        return current_user.team_id
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Keine Berechtigung für Match-Caster.")
+
+
+class MatchBroadcastInfo(BaseModel):
+    caster_input: str = ""
+    caster_url: str = ""
+    caster_login: str = ""
+    is_live: bool = False
+    live_checked_at: Optional[str] = None
+
+
+class UpcomingMatchAdmin(BaseModel):
+    faceit_match_id: str
+    team_id: int
+    team_name: str
+    opponent_name: Optional[str] = None
+    competition_name: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    status: str
+    map_name: Optional[str] = None
+    broadcast: Optional[MatchBroadcastInfo] = None
+
+
+class BroadcastUpdate(BaseModel):
+    caster_input: str = ""
+
+
+def _broadcast_info(broadcast: Optional[MatchBroadcast]) -> Optional[MatchBroadcastInfo]:
+    if broadcast is None:
+        return None
+    return MatchBroadcastInfo(
+        caster_input=broadcast.caster_input,
+        caster_url=broadcast.caster_url,
+        caster_login=broadcast.caster_login,
+        is_live=broadcast.is_live,
+        live_checked_at=broadcast.live_checked_at.isoformat() if broadcast.live_checked_at else None,
+    )
+
+
+@app.get("/admin/matches/upcoming/", response_model=List[UpcomingMatchAdmin])
+async def get_upcoming_matches_admin(current_user: CustomUser = Depends(get_current_user)):
+    """The next upcoming/ongoing FACEIT match per team (plus its caster
+    entry), for the admin "Match-Caster" module. A Teammanager sees only
+    their own team's match."""
+    scope = await _resolve_broadcast_team_scope(current_user)
+
+    def _collect():
+        team_ids = list(
+            TeamFaceitMatch.objects.filter(status__in=["upcoming", "ongoing"], scheduled_at__isnull=False)
+            .values_list("league_entry__team_id", flat=True).distinct()
+        )
+        teams = Team.objects.filter(id__in=team_ids).order_by("name")
+        if scope is not None:
+            teams = teams.filter(id=scope)
+
+        out: List[UpcomingMatchAdmin] = []
+        for team in teams:
+            match = (
+                TeamFaceitMatch.objects.filter(
+                    status__in=["upcoming", "ongoing"], scheduled_at__isnull=False, league_entry__team=team,
+                )
+                .select_related("league_entry__team", "broadcast")
+                .order_by("scheduled_at")
+                .first()
+            )
+            if not match:
+                continue
+            out.append(UpcomingMatchAdmin(
+                faceit_match_id=match.faceit_match_id,
+                team_id=team.id,
+                team_name=team.name,
+                opponent_name=match.opponent_name,
+                competition_name=match.competition_name,
+                scheduled_at=match.scheduled_at.isoformat() if match.scheduled_at else None,
+                status=match.status,
+                map_name=match.map_name,
+                broadcast=_broadcast_info(getattr(match, "broadcast", None)),
+            ))
+        return out
+
+    return await sync_to_async(_collect)()
+
+
+@app.put("/admin/matches/{faceit_match_id}/broadcast/", response_model=MatchBroadcastInfo)
+async def update_match_broadcast(
+    faceit_match_id: str,
+    payload: BroadcastUpdate,
+    current_user: CustomUser = Depends(get_current_user),
+):
+    scope = await _resolve_broadcast_team_scope(current_user)
+    try:
+        match = await sync_to_async(
+            TeamFaceitMatch.objects.select_related("league_entry__team").get
+        )(faceit_match_id=faceit_match_id)
+    except TeamFaceitMatch.DoesNotExist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match nicht gefunden.")
+    if scope is not None and match.league_entry.team_id != scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Du kannst nur Caster deines eigenen Teams verwalten.")
+
+    def _save():
+        broadcast, _ = MatchBroadcast.objects.get_or_create(match=match)
+        broadcast.caster_input = (payload.caster_input or "").strip()
+        broadcast.save()  # normalises caster_url / caster_login
+        return broadcast
+
+    broadcast = await sync_to_async(_save)()
+    await sync_to_async(_log_action)(
+        current_user, "update", "MatchBroadcast", broadcast.id,
+        f"{match.league_entry.team.name} vs {match.opponent_name or '?'}: "
+        f"{broadcast.caster_login or broadcast.caster_url or '(leer)'}",
+    )
+    return _broadcast_info(broadcast)
+
 
 async def _resolve_pracc_team_scope(current_user: CustomUser) -> Optional[int]:
     """None = full access (superuser or gameservers.manage_gameservers

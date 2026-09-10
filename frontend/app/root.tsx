@@ -36,6 +36,7 @@ import {
 } from "~/i18n/config";
 import { SITE_URL, SITE_NAME, DEFAULT_IMAGE } from "~/lib/seo";
 import { imageFallback } from "~/lib/sampleAssets";
+import MatchLivePopup from "~/components/MatchLivePopup";
 
 type UserProfile = AuthUser;
 
@@ -481,6 +482,10 @@ function SiteChrome({
       )}
 
       {children}
+
+      {/* Site-wide "a match is live" popup - renders nothing until its own
+          client-side poll finds a live, cast match. */}
+      <MatchLivePopup />
 
       {/* Global Footer */}
       <footer className="bg-gray-900 py-12 border-t border-gray-800">

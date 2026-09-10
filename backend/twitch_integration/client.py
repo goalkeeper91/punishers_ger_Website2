@@ -8,6 +8,7 @@ since we only need public read access to stream status, not any
 user-specific scopes.
 """
 
+import re
 import time
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
@@ -46,6 +47,47 @@ def extract_twitch_login(url: Optional[str]) -> Optional[str]:
     if not path:
         return None
     return path.split("/")[0] or None
+
+
+_BARE_HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{3,25}$")
+
+
+def normalize_caster(value: Optional[str]) -> tuple[str, Optional[str]]:
+    """Turn an admin's free-text caster entry into ``(url, twitch_login)``:
+
+    - a bare channel handle ("some_caster")  -> ("https://twitch.tv/some_caster", "some_caster")
+    - any twitch.tv URL                      -> (url with scheme, extracted login)
+    - any other URL (YouTube, Kick, ...)     -> (url with scheme, None)
+    - blank / unusable                       -> ("", None) / (url, None)
+
+    ``login`` is what the live-status poller and the embedded player key on -
+    it's None whenever we can't be sure the stream is on Twitch."""
+    value = (value or "").strip()
+    if not value:
+        return "", None
+
+    has_scheme = "://" in value
+    first_segment = value.split("/", 1)[0]
+    looks_like_url = has_scheme or "." in first_segment
+
+    if not looks_like_url:
+        if _BARE_HANDLE_RE.match(value):
+            login = value.lower()
+            return f"https://twitch.tv/{login}", login
+        return "", None  # neither a URL nor a valid handle - nothing usable
+
+    url = value if has_scheme else f"https://{value}"
+    # Only ever hand back a plain http(s) link with a host. Reject
+    # javascript:, data:, vbscript:, etc. so a stored caster_url can never
+    # become an XSS sink when rendered into an <a href> (admin module +
+    # site-wide live popup).
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return "", None
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return "", None
+    return url, extract_twitch_login(url)
 
 
 class TwitchClient:

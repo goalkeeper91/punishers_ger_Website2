@@ -164,6 +164,35 @@ export async function fetchCreators(): Promise<Creator[]> {
   }
 }
 
+export interface LiveBroadcast {
+  faceit_match_id: string;
+  team_name: string;
+  opponent_name: string | null;
+  competition_name: string | null;
+  scheduled_at: string | null;
+  caster_url: string;
+  caster_login: string;
+  stream_title: string;
+  stream_game: string;
+  viewer_count: number | null;
+  thumbnail_url: string;
+}
+
+/** The currently-live, externally-cast match (if any), for the site-wide
+ * live popup (see components/MatchLivePopup.tsx). Reads a poller-maintained
+ * cache on the backend - no Twitch call per request - and returns null
+ * whenever nothing is live or the fetch fails. */
+export async function fetchLiveBroadcast(): Promise<LiveBroadcast | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/matches/live/`);
+    if (!res.ok) return null;
+    return (await res.json()) as LiveBroadcast | null;
+  } catch (error) {
+    console.error("Failed to fetch live broadcast:", error);
+    return null;
+  }
+}
+
 /** Fire-and-forget click tracking; never blocks navigation on failure. */
 export function trackSponsorClick(id: number): void {
   if (id < 0) return; // sample/demo sponsor - not a real backend row

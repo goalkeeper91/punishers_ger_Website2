@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 
 class PlayerFaceitStats(models.Model):
@@ -185,6 +188,109 @@ class PlayerMatchStats(models.Model):
     def __str__(self):
         source = self.match or self.solo_match
         return f"{self.player.ingame_name} @ {source.faceit_match_id if source else '?'}"
+
+
+# --- External-caster broadcasts + the shared "live window" rule ---------------
+#
+# An external caster's stream is only ever polled/shown from 15 minutes
+# before a match's scheduled start until 15 minutes after it finishes. The
+# window is data-driven (TeamFaceitMatch.scheduled_at / .finished_at), never
+# a guessed match duration. While finished_at is still NULL (match running,
+# not yet synced as finished) the window stays open, but a hard 12h cap from
+# scheduled_at stops a match that never flips to 'finished' from being
+# polled forever. This is defined in exactly one place and reused by the
+# Twitch poller (twitch_integration/scheduler.py) and the public
+# /matches/live/ endpoint (fastapi_app/main.py).
+
+BROADCAST_WINDOW_LEAD = timedelta(minutes=15)
+BROADCAST_WINDOW_TRAIL = timedelta(minutes=15)
+BROADCAST_WINDOW_HARD_CAP = timedelta(hours=12)
+
+
+def broadcast_live_window_q(now=None) -> Q:
+    """A Q filter (field prefix ``match__``) selecting MatchBroadcast rows
+    whose match is currently inside its live window."""
+    now = now or timezone.now()
+    return (
+        Q(match__scheduled_at__isnull=False)
+        & Q(match__scheduled_at__lte=now + BROADCAST_WINDOW_LEAD)
+        & (
+            Q(match__finished_at__gte=now - BROADCAST_WINDOW_TRAIL)
+            | (
+                Q(match__finished_at__isnull=True)
+                & Q(match__scheduled_at__gte=now - BROADCAST_WINDOW_HARD_CAP)
+            )
+        )
+    )
+
+
+def is_in_live_window(match, now=None) -> bool:
+    """Python equivalent of broadcast_live_window_q for an already-loaded
+    TeamFaceitMatch."""
+    now = now or timezone.now()
+    if not match.scheduled_at:
+        return False
+    if now < match.scheduled_at - BROADCAST_WINDOW_LEAD:
+        return False
+    if match.finished_at:
+        return now <= match.finished_at + BROADCAST_WINDOW_TRAIL
+    return now <= match.scheduled_at + BROADCAST_WINDOW_HARD_CAP
+
+
+class MatchBroadcast(models.Model):
+    """Caster / stream info for one upcoming TeamFaceitMatch, entered in the
+    admin "Match-Caster" module. ``caster_input`` is the raw text an admin
+    typed (a bare Twitch handle or a full URL); save() normalises it into
+    ``caster_url`` (always a followable link) and ``caster_login`` (the
+    Twitch login when it is a Twitch channel - empty for e.g. a YouTube
+    link).
+
+    The is_live/stream_* fields are a cache written only by
+    twitch_integration/scheduler.py's poller while the match is inside its
+    live window (see is_in_live_window) - never trusted outside it."""
+
+    match = models.OneToOneField(
+        TeamFaceitMatch, on_delete=models.CASCADE, related_name='broadcast'
+    )
+    caster_input = models.CharField(max_length=300, blank=True, help_text="Twitch-Name oder voller Stream-Link des Casters, wie eingegeben.")
+    caster_url = models.CharField(max_length=300, blank=True, help_text="Normalisierter Stream-Link (automatisch aus caster_input gebaut).")
+    caster_login = models.CharField(max_length=100, blank=True, help_text="Twitch-Login, falls erkennbar - Basis für Live-Check und eingebetteten Player.")
+
+    is_live = models.BooleanField(default=False)
+    stream_title = models.CharField(max_length=300, blank=True)
+    stream_game = models.CharField(max_length=150, blank=True)
+    viewer_count = models.PositiveIntegerField(blank=True, null=True)
+    thumbnail_url = models.URLField(max_length=500, blank=True)
+    live_checked_at = models.DateTimeField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Match-Broadcast"
+        verbose_name_plural = "Match-Broadcasts"
+
+    def __str__(self):
+        return f"Broadcast: {self.match} ({self.caster_login or self.caster_url or 'kein Caster'})"
+
+    def save(self, *args, **kwargs):
+        # Imported here (not at module load) to keep faceit_integration free
+        # of an import-time dependency on twitch_integration.
+        from twitch_integration.client import normalize_caster
+
+        new_url, new_login = normalize_caster(self.caster_input)
+        new_login = new_login or ""
+        if new_login != self.caster_login:
+            # The caster changed - any cached live snapshot is now stale.
+            self.is_live = False
+            self.stream_title = ""
+            self.stream_game = ""
+            self.viewer_count = None
+            self.thumbnail_url = ""
+            self.live_checked_at = None
+        self.caster_url = new_url
+        self.caster_login = new_login
+        super().save(*args, **kwargs)
 
 
 class FaceitSyncRun(models.Model):

@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import PlayerFaceitStats, TeamFaceitMatch, PlayerFaceitMatch, PlayerMatchStats, FaceitSyncRun
+from .models import (
+    PlayerFaceitStats,
+    TeamFaceitMatch,
+    PlayerFaceitMatch,
+    PlayerMatchStats,
+    FaceitSyncRun,
+    MatchBroadcast,
+)
 
 
 @admin.register(PlayerFaceitStats)
@@ -32,6 +39,14 @@ class PlayerMatchStatsAdmin(admin.ModelAdmin):
     list_filter = ('result',)
     search_fields = ('player__ingame_name', 'match__faceit_match_id', 'solo_match__faceit_match_id')
     readonly_fields = ('raw_data', 'last_synced_at')
+
+
+@admin.register(MatchBroadcast)
+class MatchBroadcastAdmin(admin.ModelAdmin):
+    list_display = ('match', 'caster_login', 'caster_url', 'is_live', 'viewer_count', 'live_checked_at')
+    list_filter = ('is_live',)
+    search_fields = ('match__opponent_name', 'match__faceit_match_id', 'caster_input', 'caster_login')
+    readonly_fields = ('caster_url', 'caster_login', 'is_live', 'stream_title', 'stream_game', 'viewer_count', 'thumbnail_url', 'live_checked_at', 'created_at', 'updated_at')
 
 
 @admin.register(FaceitSyncRun)

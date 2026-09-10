@@ -47,5 +47,6 @@ export default [
   route("/admin/praccs", "routes/admin/praccs.tsx"), // Admin/Teammanager: Pracc scheduling (game-scoped for Teammanagers)
   route("/admin/communications", "routes/admin/communications.tsx"), // Admin: send free-text emails from info@/orga@/personal org addresses
   route("/admin/social-posts", "routes/admin/social-posts.tsx"), // Admin: auto-generated match announcement/result posts for Facebook/Instagram/X
+  route("/admin/broadcasts", "routes/admin/broadcasts.tsx"), // Admin/Social-Media/Teammanager: external caster per upcoming match -> site-wide live popup
   route("/admin/audit-log", "routes/admin/audit-log.tsx"), // Admin audit log (superuser-only)
 ] satisfies RouteConfig;

@@ -22,24 +22,49 @@ _scheduler: Optional[BackgroundScheduler] = None
 
 def _check_live_status() -> None:
     from django.db import close_old_connections
+    from django.utils import timezone
     from users.models import CustomUser
     from discord_bot.redis_bridge import publish_event_notification
+    from faceit_integration.models import (
+        MatchBroadcast,
+        broadcast_live_window_q,
+    )
     from .client import TwitchClient, TwitchAPIError, extract_twitch_login
 
     close_old_connections()
     try:
+        now = timezone.now()
+
         creators = list(CustomUser.objects.filter(is_content_creator=True).exclude(twitch_link=""))
         logins_by_user_id = {}
         for creator in creators:
             login = extract_twitch_login(creator.twitch_link)
             if login:
                 logins_by_user_id[creator.id] = login
-        if not logins_by_user_id:
+
+        # External match casters, but only those inside their match's live
+        # window (15 min before scheduled start .. 15 min after finish) -
+        # see faceit_integration/models.broadcast_live_window_q.
+        broadcasts = list(
+            MatchBroadcast.objects.filter(caster_login__gt="")
+            .filter(broadcast_live_window_q(now))
+            .select_related("match")
+        )
+
+        # First: any broadcast still flagged live that has dropped out of
+        # its window since the last poll - clear it now so the public popup
+        # stops showing it without waiting for the next Twitch batch.
+        MatchBroadcast.objects.filter(is_live=True).exclude(
+            broadcast_live_window_q(now)
+        ).update(is_live=False, live_checked_at=now)
+
+        all_logins = list(logins_by_user_id.values()) + [b.caster_login for b in broadcasts]
+        if not all_logins:
             return
 
         try:
             client = TwitchClient()
-            live_by_login = client.get_live_streams(list(logins_by_user_id.values()))
+            live_by_login = client.get_live_streams(all_logins)
         except TwitchAPIError as exc:
             logger.warning("Twitch-Live-Poll fehlgeschlagen: %s", exc)
             return
@@ -68,6 +93,24 @@ def _check_live_status() -> None:
             if is_live_now != creator.last_known_live:
                 creator.last_known_live = is_live_now
                 creator.save(update_fields=["last_known_live"])
+
+        # Refresh the live cache on each in-window broadcast. Written via
+        # .update() to bypass MatchBroadcast.save()'s caster re-normalisation
+        # (nothing about the caster changed here).
+        for b in broadcasts:
+            stream = live_by_login.get(b.caster_login.lower())
+            if stream:
+                thumbnail_url = (stream.get("thumbnail_url") or "").replace("{width}", "320").replace("{height}", "180")
+                MatchBroadcast.objects.filter(pk=b.pk).update(
+                    is_live=True,
+                    stream_title=stream.get("title") or "",
+                    stream_game=stream.get("game_name") or "",
+                    viewer_count=stream.get("viewer_count"),
+                    thumbnail_url=thumbnail_url,
+                    live_checked_at=now,
+                )
+            else:
+                MatchBroadcast.objects.filter(pk=b.pk).update(is_live=False, live_checked_at=now)
     finally:
         close_old_connections()
 

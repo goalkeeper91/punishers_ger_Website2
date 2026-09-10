@@ -6,7 +6,7 @@
 
 import { hasRole, ROLE_TEAM_MANAGER, type AuthUser } from "./auth";
 
-export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "leagues" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers" | "praccs" | "communications" | "social-posts";
+export type AdminNavKey = "dashboard" | "users" | "news" | "teams" | "leagues" | "sponsors" | "social-stats" | "audit-log" | "site-settings" | "applications" | "discord" | "social-media" | "gameservers" | "praccs" | "communications" | "social-posts" | "broadcasts";
 
 export interface AdminNavItem {
   key: AdminNavKey;
@@ -94,6 +94,11 @@ export function getAdminNavItems(
   }
   if (isAdmin || canGameservers || isTeamManager) {
     items.push({ key: "praccs", href: "/admin/praccs", label: "Praccs" });
+  }
+  // Match-Caster: Admin, Social-Media-Manager, or a Teammanager (scoped
+  // server-side to their own team's upcoming match).
+  if (isAdmin || canSocialPosts || isTeamManager) {
+    items.push({ key: "broadcasts", href: "/admin/broadcasts", label: "Match-Caster" });
   }
   if (isAdmin || canSendEmail) {
     items.push({ key: "communications", href: "/admin/communications", label: "E-Mail versenden" });
