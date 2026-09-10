@@ -41,7 +41,11 @@ def extract_twitch_login(url: Optional[str]) -> Optional[str]:
         parsed = urlparse(url if "://" in url else f"https://{url}")
     except ValueError:
         return None
-    if "twitch.tv" not in (parsed.netloc or ""):
+    # Exact host match (parsed.hostname is lowercased and strips any
+    # userinfo/port) - a substring check on netloc would accept look-alikes
+    # like "twitch.tv.evil.com" or "twitch.tv@evil.com".
+    host = (parsed.hostname or "").lower()
+    if host != "twitch.tv" and not host.endswith(".twitch.tv"):
         return None
     path = parsed.path.strip("/")
     if not path:
@@ -87,7 +91,13 @@ def normalize_caster(value: Optional[str]) -> tuple[str, Optional[str]]:
         return "", None
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return "", None
-    return url, extract_twitch_login(url)
+    login = extract_twitch_login(url)
+    if login:
+        # Canonicalise: the stored URL and the embedded player's channel
+        # must never diverge, so a Twitch URL always collapses to the bare
+        # channel link regardless of how it was typed.
+        return f"https://twitch.tv/{login}", login
+    return url, None
 
 
 class TwitchClient:
