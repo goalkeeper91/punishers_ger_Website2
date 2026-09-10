@@ -59,15 +59,17 @@ class MatchContext:
             if self.team_maps_won is not None and self.opponent_maps_won is not None:
                 lines.append(f"Ergebnis: {self.result_word} ({self.team_maps_won}:{self.opponent_maps_won} Maps)")
             if self.maps_summary:
-                # maps_summary is either one bare map name (FACEIT-synced
-                # single row - see faceit_integration/sync.py) or a real
-                # "name score, name score, ..." list (manually-recorded
-                # multi-map series) - phrased vaguely enough to cover both
-                # without implying the bare-name case has its own score
-                # attached (a previous wording, "Maps im Detail:", led the
-                # model to pair a single map name with the Ergebnis line's
-                # SERIES score above as if it were that map's own result -
-                # confirmed live, produced a nonsensical "2:1 auf de_nuke").
+                # maps_summary is either a real "name score, name score, ..."
+                # per-map list (any multi-map series now, FACEIT-synced or
+                # manually recorded - see faceit_integration/sync.py
+                # _extract_series_maps) or, only for a Bo1 / a payload
+                # without per-map data, one bare unscored map name. Phrased
+                # vaguely enough to cover both without implying the bare-name
+                # case has its own score attached (a previous wording,
+                # "Maps im Detail:", led the model to pair a single map name
+                # with the Ergebnis line's SERIES score above as if it were
+                # that map's own result - confirmed live, produced a
+                # nonsensical "2:1 auf de_nuke").
                 lines.append(f"Map-Info: {self.maps_summary}")
         return "\n".join(lines)
 

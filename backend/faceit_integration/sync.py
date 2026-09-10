@@ -98,15 +98,47 @@ def _extract_player_faction_key(match: dict, faceit_player_id: str) -> Optional[
 
 
 def _extract_map_name(match: dict) -> Optional[str]:
-    """Best-effort: the map actually played after veto, e.g. 'de_mirage'.
-    FACEIT match objects carry this under voting.map.pick (a list; the
-    picked/decider map is the first entry). Not guaranteed to be present on
-    every match payload (e.g. matches that never got voting data) - stays
-    None then, same graceful-degradation approach as everywhere else here.
-    This is the only thing team-level stats track (see fastapi_app/main.py
-    /stats/ endpoints); no other per-match team stats are derived."""
+    """Best-effort: the first map of the series after veto, e.g. 'de_mirage'.
+    FACEIT match objects carry the picked maps under voting.map.pick (a list
+    in play order - for a Bo1 that's the single map, for a Bo3 the first
+    entry is just map 1). Not guaranteed to be present on every match
+    payload (e.g. matches that never got voting data) - stays None then,
+    same graceful-degradation approach as everywhere else here. Kept as the
+    fallback/legacy single-map field the team map-stats endpoints still use
+    (see fastapi_app/main.py /stats/); the full per-map breakdown of a
+    multi-map series comes from _extract_series_maps() below."""
     picks = ((match.get("voting") or {}).get("map") or {}).get("pick") or []
     return picks[0] if picks else None
+
+
+def _extract_series_maps(match: dict, our_key: str) -> list[dict]:
+    """Per-map breakdown of a (possibly multi-map) FACEIT series, built
+    entirely from the championship-match payload already stored in
+    TeamFaceitMatch.raw_data - no extra /stats/ call needed:
+    voting.map.pick gives the ordered map names, detailed_results the
+    matching ordered per-map scores + winner. Returns [] when there's no
+    real multi-map data (a Bo1, or an older/partial payload without
+    detailed_results) so callers just fall back to the single map_name.
+
+    Shape matches the manually-recorded multi-row series path in
+    generate_social_post_draft_for_series():
+    [{"map": "de_anubis", "team_score": 13, "opponent_score": 8, "result": "win"}, ...]"""
+    detailed = match.get("detailed_results") or []
+    if len(detailed) < 2:
+        return []
+    picks = ((match.get("voting") or {}).get("map") or {}).get("pick") or []
+    opp_key = "faction2" if our_key == "faction1" else "faction1"
+    maps: list[dict] = []
+    for i, res in enumerate(detailed):
+        factions = res.get("factions") or {}
+        winner = res.get("winner")
+        maps.append({
+            "map": picks[i] if i < len(picks) else None,
+            "team_score": _safe_int((factions.get(our_key) or {}).get("score")),
+            "opponent_score": _safe_int((factions.get(opp_key) or {}).get("score")),
+            "result": ("win" if winner == our_key else "loss") if winner else None,
+        })
+    return maps
 
 
 # =====================================================================
@@ -224,9 +256,24 @@ def _announce_match_result(match: TeamFaceitMatch) -> None:
     team_name = match.league_entry.team.name
     result_label = "Sieg" if match.result == "win" else "Niederlage"
     title = f"{result_label}: {team_name} vs. {match.opponent_name or 'Unbekannt'}"
+    # match.team_score/opponent_score is the SERIES score (maps won, e.g. 2:1)
+    # for a FACEIT-synced multi-map fixture - correct for the headline line.
     score = f"{match.team_score if match.team_score is not None else '?'}:{match.opponent_score if match.opponent_score is not None else '?'}"
     fields = [{"name": "Ergebnis", "value": score, "inline": True}]
-    if match.map_name:
+
+    our_key = (
+        _extract_our_faction_key(match.raw_data, match.league_entry.faceit_team_id)
+        if match.raw_data else None
+    )
+    series_maps = _extract_series_maps(match.raw_data or {}, our_key) if our_key else []
+    if series_maps:
+        fields.append({
+            "name": f"Maps ({len(series_maps)})",
+            "value": "\n".join(
+                f"{m['map'] or '?'}  {m['team_score']}:{m['opponent_score']}" for m in series_maps
+            ),
+        })
+    elif match.map_name:
         fields.append({"name": "Map", "value": match.map_name, "inline": True})
 
     # Fan-out + per-channel dedup lives in publish_event_notification (see
@@ -259,9 +306,11 @@ def generate_social_post_draft_for_series(matches: list[TeamFaceitMatch], post_t
     by FACEIT for this match_id. For a multi-map league fixture (e.g. this
     org's real Bo3s) that field is already the SERIES score (maps won, e.g.
     2:1), not a single map's round score - a match_id covers the whole
-    series; FACEIT's individual per-map round scores only exist in the
-    separate /matches/{id}/stats response, not built into a structured
-    maps-row here yet (only the manual multi-row case below has that).
+    series. The per-map breakdown (name + that map's own score + who won it)
+    is pulled from the raw payload via _extract_series_maps() and fills
+    maps_summary/maps as a real "name score, ..." list, same shape as the
+    manual multi-row case below; only a Bo1 / a payload without
+    detailed_results falls back to the bare, unscored map_name.
 
     For multiple rows (always a manually-recorded series - see
     fastapi_app/main.py create_manual_match, the only place series_id gets
@@ -281,33 +330,44 @@ def generate_social_post_draft_for_series(matches: list[TeamFaceitMatch], post_t
         team_maps_won = opponent_maps_won = None
         if post_type == "result":
             team_maps_won, opponent_maps_won = match.team_score, match.opponent_score
-        # match.team_score/opponent_score is the SERIES score (maps won -
-        # see team_maps_won/opponent_maps_won two lines up, same fields).
-        # Pairing match.map_name with that score here as if it were that
-        # one map's own result was wrong and confirmed live: a Bo3 synced
-        # as this single row produced a generated post claiming "2:1 auf
-        # de_nuke", when 2:1 was the series result and de_nuke only the
-        # (veto-picked, not necessarily deciding) map name - a FACEIT
-        # match_id can cover a whole multi-map series, not just one map.
-        # Just the bare map name, unscored, until real per-map results are
-        # available (see generate_social_post_draft_for_series's
-        # docstring on the still-missing /matches/{id}/stats breakdown).
-        maps_summary = match.map_name or None
-        maps_struct = None
         match_datetime = match.finished_at if post_type == "result" else match.scheduled_at
 
+        # our_key drives both the per-map breakdown and the opponent avatar
+        # below - both re-derived from the raw championship-match payload
+        # rather than needing dedicated fields, since they're only used at
+        # draft-generation time. None for a manual match (no raw_data).
+        our_key = (
+            _extract_our_faction_key(match.raw_data, match.league_entry.faceit_team_id)
+            if match.raw_data else None
+        )
+
+        # Per-map breakdown of a multi-map series, straight from raw_data
+        # (voting.map.pick + detailed_results, see _extract_series_maps).
+        # Falls back to the bare, unscored map_name for a Bo1 / a payload
+        # without detailed_results - deliberately unscored there so the LLM
+        # can't pair a single map name with the SERIES score on the
+        # "Ergebnis" line as its own result (confirmed live once: produced
+        # a nonsensical "2:1 auf de_nuke").
+        series_maps = _extract_series_maps(match.raw_data or {}, our_key) if (post_type == "result" and our_key) else []
+        if series_maps:
+            maps_summary = ", ".join(
+                f"{m['map'] or '?'} {m['team_score']}:{m['opponent_score']}" for m in series_maps
+            )
+            maps_struct = [
+                {"name": m["map"], "team_score": m["team_score"],
+                 "opponent_score": m["opponent_score"], "result": m["result"]}
+                for m in series_maps
+            ]
+        else:
+            maps_summary = match.map_name or None
+            maps_struct = None
+
         # The opponent's FACEIT team avatar, for the image template's
-        # matchup badges (see social_posts/image_generation.py) -
-        # re-derived from the full match payload already stored in
-        # raw_data rather than needing a dedicated field, since it's only
-        # ever used at draft-generation time. None for a manual match
-        # (no raw_data to derive it from).
+        # matchup badges (see social_posts/image_generation.py).
         opponent_logo_url = None
-        if match.raw_data:
-            our_key = _extract_our_faction_key(match.raw_data, match.league_entry.faceit_team_id)
-            if our_key:
-                opponent_key = "faction2" if our_key == "faction1" else "faction1"
-                opponent_logo_url = ((match.raw_data.get("teams") or {}).get(opponent_key) or {}).get("avatar") or None
+        if our_key:
+            opponent_key = "faction2" if our_key == "faction1" else "faction1"
+            opponent_logo_url = ((match.raw_data.get("teams") or {}).get(opponent_key) or {}).get("avatar") or None
     else:
         team_maps_won = sum(1 for m in matches if m.result == "win")
         opponent_maps_won = sum(1 for m in matches if m.result == "loss")
