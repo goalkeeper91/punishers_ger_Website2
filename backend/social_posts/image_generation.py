@@ -329,22 +329,23 @@ def _draw_matchup_logos(img: Image.Image, y_center: int, team_logo: Optional[Ima
 
 
 def _draw_maps_row(img: Image.Image, y: int, maps: list[dict]) -> tuple[Image.Image, int]:
-    """Draws up to 5 (Bo5) compact per-map tiles side by side - one rounded
-    tile per played map, its own accent color (see MAP_COLORS), the map
-    name, and that map's score/result. Returns (new image, y position right
-    after the row) - like every other semi-transparent decoration in this
-    module (_add_diagonal_accents, _draw_angular_banner, _draw_game_badge),
-    this draws on its own RGBA overlay and alpha-composites it onto img,
-    since a plain ImageDraw on the base RGB image can't blend a translucent
-    fill color at all. Caller (generate_match_image) only calls this when
-    ctx.maps is non-empty, so a Bo1 (or any post with no structured per-map
-    data, e.g. every FACEIT-auto-synced post today - see sync.py's
-    _generate_social_post_draft) simply never gets this row and keeps the
-    plain aggregate score layout unchanged."""
-    maps = maps[:5]
+    """Draws one compact per-map tile per played map, side by side - each
+    with its own accent color (see MAP_COLORS), the map name, and that
+    map's score/result. Returns (new image, y position right after the
+    row) - like every other semi-transparent decoration in this module
+    (_add_diagonal_accents, _draw_angular_banner, _draw_game_badge), this
+    draws on its own RGBA overlay and alpha-composites it onto img, since a
+    plain ImageDraw on the base RGB image can't blend a translucent fill
+    color at all. Caller (generate_match_image) only calls this when
+    ctx.maps is non-empty (a Bo1 / a post with no structured per-map data
+    never gets this row and keeps the plain aggregate score layout).
+
+    Tile width adapts to however many maps there are so the row always fits
+    the canvas - no fixed series-length assumption."""
     count = len(maps)
-    tile_w = 190
     gap = 14
+    max_row_w = SIZE - 2 * 40  # keep a 40px margin each side
+    tile_w = min(190, int((max_row_w - (count - 1) * gap) / count)) if count else 190
     total_w = count * tile_w + (count - 1) * gap
     x0 = (SIZE - total_w) / 2
     tile_h = 130
@@ -397,6 +398,8 @@ def _draw_maps_row(img: Image.Image, y: int, maps: list[dict]) -> tuple[Image.Im
         else:
             score_text = "–"
         score_font = _font(34, bold=True)
+        while score_font.size > 14 and draw.textbbox((0, 0), score_text, font=score_font)[2] > tile_w - 16:
+            score_font = _font(score_font.size - 2, bold=True)
         score_bbox = draw.textbbox((0, 0), score_text, font=score_font)
         score_fill = (22, 163, 74) if result == "win" else (239, 68, 68) if result == "loss" else color
         draw.text((x + (tile_w - (score_bbox[2] - score_bbox[0])) / 2, y + 68), score_text, font=score_font, fill=(*score_fill, 255))
