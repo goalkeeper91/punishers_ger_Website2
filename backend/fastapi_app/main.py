@@ -1538,24 +1538,17 @@ def _announce_news_published(article: NewsArticle) -> None:
     """Fires a Discord "news published" announcement - called from the
     create/update news endpoints below, only on a draft->published
     transition (or direct creation as published)."""
-    from discord_bot.models import AnnouncementChannelMapping
-    from discord_bot.redis_bridge import publish_notification
+    from discord_bot.redis_bridge import publish_event_notification
 
     excerpt = (article.content or "")[:300]
     article_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/news/{article.slug}"
 
-    mappings = AnnouncementChannelMapping.objects.filter(
-        event_type="news_published", guild__is_active=True
-    ).select_related("guild")
-    for mapping in mappings:
-        publish_notification(
-            event_type="news_published",
-            guild=mapping.guild,
-            channel_id=mapping.channel_id,
-            title=article.title,
-            description=excerpt,
-            fields=[{"name": "Link", "value": article_url, "inline": False}],
-        )
+    publish_event_notification(
+        event_type="news_published",
+        title=article.title,
+        description=excerpt,
+        fields=[{"name": "Link", "value": article_url, "inline": False}],
+    )
 
 @app.post("/admin/news/", response_model=NewsArticleSchema, status_code=status.HTTP_201_CREATED)
 async def create_news_article(
@@ -4096,20 +4089,13 @@ def _announce_pracc_created(pracc: Pracc) -> None:
     """Fires a Discord "pracc_created" announcement - mirrors
     _announce_news_published() above exactly. Called from create_pracc()
     below, inside the same sync context that already saved the row."""
-    from discord_bot.models import AnnouncementChannelMapping
-    from discord_bot.redis_bridge import publish_notification
+    from discord_bot.redis_bridge import publish_event_notification
 
-    mappings = AnnouncementChannelMapping.objects.filter(
-        event_type="pracc_created", guild__is_active=True
-    ).select_related("guild")
-    for mapping in mappings:
-        publish_notification(
-            event_type="pracc_created",
-            guild=mapping.guild,
-            channel_id=mapping.channel_id,
-            title=f"Neuer Pracc: {pracc.own_team.name} vs. {pracc.opponent_team_name}",
-            description=f"Geplant für {pracc.scheduled_at.strftime('%d.%m.%Y %H:%M')} UTC auf {pracc.slot.label}.",
-        )
+    publish_event_notification(
+        event_type="pracc_created",
+        title=f"Neuer Pracc: {pracc.own_team.name} vs. {pracc.opponent_team_name}",
+        description=f"Geplant für {pracc.scheduled_at.strftime('%d.%m.%Y %H:%M')} UTC auf {pracc.slot.label}.",
+    )
 
 class PraccSchema(BaseModel):
     id: int

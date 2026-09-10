@@ -23,8 +23,7 @@ _scheduler: Optional[BackgroundScheduler] = None
 def _check_live_status() -> None:
     from django.db import close_old_connections
     from users.models import CustomUser
-    from discord_bot.models import DiscordGuild, AnnouncementChannelMapping
-    from discord_bot.redis_bridge import publish_notification
+    from discord_bot.redis_bridge import publish_event_notification
     from .client import TwitchClient, TwitchAPIError, extract_twitch_login
 
     close_old_connections()
@@ -45,29 +44,26 @@ def _check_live_status() -> None:
             logger.warning("Twitch-Live-Poll fehlgeschlagen: %s", exc)
             return
 
-        stream_live_mappings = list(
-            AnnouncementChannelMapping.objects.filter(event_type="stream_live", guild__is_active=True)
-            .select_related("guild")
-        )
-
         for creator in creators:
             login = logins_by_user_id.get(creator.id)
             is_live_now = bool(login and login.lower() in live_by_login)
 
             if is_live_now and not creator.last_known_live:
                 stream = live_by_login[login.lower()]
-                for mapping in stream_live_mappings:
-                    publish_notification(
-                        event_type="stream_live",
-                        guild=mapping.guild,
-                        channel_id=mapping.channel_id,
-                        title=f"{creator.username} ist jetzt live!",
-                        description=stream.get("title") or "",
-                        fields=[
-                            {"name": "Spiel", "value": stream.get("game_name") or "-", "inline": True},
-                            {"name": "Link", "value": creator.twitch_link, "inline": True},
-                        ],
-                    )
+                # Fan-out + per-channel dedup in publish_event_notification
+                # (discord_bot/redis_bridge.py). Re-queries the stream_live
+                # mappings per went-live transition rather than pre-fetching
+                # once - those transitions are rare enough (a handful a day)
+                # that the extra query is irrelevant.
+                publish_event_notification(
+                    event_type="stream_live",
+                    title=f"{creator.username} ist jetzt live!",
+                    description=stream.get("title") or "",
+                    fields=[
+                        {"name": "Spiel", "value": stream.get("game_name") or "-", "inline": True},
+                        {"name": "Link", "value": creator.twitch_link, "inline": True},
+                    ],
+                )
 
             if is_live_now != creator.last_known_live:
                 creator.last_known_live = is_live_now

@@ -219,8 +219,7 @@ def _announce_match_result(match: TeamFaceitMatch) -> None:
     check in sync_league_matches() below). Local import: discord_bot's Redis
     bridge isn't needed anywhere else in this module, and importing it here
     avoids a hard module-load-time dependency between these two apps."""
-    from discord_bot.models import AnnouncementChannelMapping
-    from discord_bot.redis_bridge import publish_notification
+    from discord_bot.redis_bridge import publish_event_notification
 
     team_name = match.league_entry.team.name
     result_label = "Sieg" if match.result == "win" else "Niederlage"
@@ -230,27 +229,15 @@ def _announce_match_result(match: TeamFaceitMatch) -> None:
     if match.map_name:
         fields.append({"name": "Map", "value": match.map_name, "inline": True})
 
-    mappings = AnnouncementChannelMapping.objects.filter(
-        event_type="match_result", guild__is_active=True
-    ).select_related("guild")
-    # The (guild, event_type) unique constraint on the model stops one guild
-    # from mapping the same event twice - but not two *different* guilds
-    # pointing their match_result mapping at the same physical channel, which
-    # would then get every result posted once per mapping. Dedupe by
-    # channel_id so that misconfiguration can't produce duplicate posts.
-    seen_channels: set[str] = set()
-    for mapping in mappings:
-        if mapping.channel_id in seen_channels:
-            continue
-        seen_channels.add(mapping.channel_id)
-        publish_notification(
-            event_type="match_result",
-            guild=mapping.guild,
-            channel_id=mapping.channel_id,
-            title=title,
-            description=match.competition_name or "",
-            fields=fields,
-        )
+    # Fan-out + per-channel dedup lives in publish_event_notification (see
+    # discord_bot/redis_bridge.py) - shared with the news/pracc/stream-live
+    # announcements.
+    publish_event_notification(
+        event_type="match_result",
+        title=title,
+        description=match.competition_name or "",
+        fields=fields,
+    )
 
 
 def generate_social_post_draft_for_series(matches: list[TeamFaceitMatch], post_type: str) -> Optional["SocialPostDraft"]:

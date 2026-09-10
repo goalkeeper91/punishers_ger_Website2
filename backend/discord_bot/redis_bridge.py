@@ -18,7 +18,7 @@ from typing import Optional
 import redis
 from django.conf import settings
 
-from .models import AnnouncementLog, DiscordGuild
+from .models import AnnouncementChannelMapping, AnnouncementLog, DiscordGuild
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,48 @@ def publish_notification(
         error_message=error_message[:500],
     )
     return success
+
+
+def publish_event_notification(
+    *,
+    event_type: str,
+    title: str,
+    description: str = "",
+    color: int = DEFAULT_EMBED_COLOR,
+    fields: Optional[list[dict]] = None,
+    triggered_by=None,
+) -> int:
+    """Fans one notification out to every active guild that has an
+    AnnouncementChannelMapping for `event_type`, via publish_notification()
+    (so each still gets its own AnnouncementLog row). Deduplicates by
+    channel_id: the model's (guild, event_type) unique constraint stops one
+    guild double-mapping an event, but not two *different* guilds pointing
+    their mapping at the same physical channel - which would otherwise post
+    the same thing once per mapping. Returns the number of channels actually
+    published to. The single shared entry point for match-result / news /
+    pracc / stream-live announcements - callers just build title/description/
+    fields and hand them here."""
+    mappings = (
+        AnnouncementChannelMapping.objects
+        .filter(event_type=event_type, guild__is_active=True)
+        .select_related("guild")
+    )
+    seen_channels: set[str] = set()
+    for mapping in mappings:
+        if mapping.channel_id in seen_channels:
+            continue
+        seen_channels.add(mapping.channel_id)
+        publish_notification(
+            event_type=event_type,
+            guild=mapping.guild,
+            channel_id=mapping.channel_id,
+            title=title,
+            description=description,
+            color=color,
+            fields=fields,
+            triggered_by=triggered_by,
+        )
+    return len(seen_channels)
 
 
 def _publish_reload_configs(guild_id: str, config_type: str, extra: dict) -> None:
