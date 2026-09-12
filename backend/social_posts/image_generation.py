@@ -485,8 +485,8 @@ def generate_match_image(ctx: MatchContext) -> ContentFile:
     footer_y += 30
     if ctx.competition_name:
         footer_y = _draw_centered_text(draw, footer_y, ctx.competition_name, 26, False, GRAY, max_width=SIZE - 120) + 10
-    if ctx.match_datetime:
-        footer_y = _draw_centered_text(draw, footer_y, ctx.match_datetime.strftime("%d.%m.%Y, %H:%M Uhr"), 24, False, GRAY)
+    if ctx.local_match_datetime:
+        footer_y = _draw_centered_text(draw, footer_y, ctx.local_match_datetime.strftime("%d.%m.%Y, %H:%M Uhr"), 24, False, GRAY)
 
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")

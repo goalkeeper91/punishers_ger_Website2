@@ -8,10 +8,20 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from .ollama_client import OllamaClient, OllamaError
 
 logger = logging.getLogger(__name__)
+
+# match_datetime always arrives UTC-aware (FACEIT timestamps are parsed as
+# such in faceit_integration/sync.py._parse_timestamp, and Django's own
+# TIME_ZONE is 'UTC' too) - but every post is written for a German-speaking
+# audience, so display must convert to local time. Without this, a 16:00
+# CEST match rendered as "14:00 Uhr" in both the post text and the template
+# image (confirmed live) while the admin UI, which explicitly converts to
+# this same zone, correctly showed 16:00.
+DISPLAY_TZ = ZoneInfo("Europe/Berlin")
 
 
 @dataclass
@@ -38,6 +48,15 @@ class MatchContext:
     opponent_logo_url: Optional[str] = None  # FACEIT avatar URL - only present for synced matches
 
     @property
+    def local_match_datetime(self) -> Optional[datetime]:
+        """match_datetime converted to Europe/Berlin - use this (not
+        match_datetime directly) for anything shown to a human. See
+        DISPLAY_TZ above."""
+        if self.match_datetime is None:
+            return None
+        return self.match_datetime.astimezone(DISPLAY_TZ)
+
+    @property
     def result_word(self) -> Optional[str]:
         if self.team_maps_won is None or self.opponent_maps_won is None:
             return None
@@ -53,8 +72,8 @@ class MatchContext:
             lines.append(f"Spiel: {self.game}")
         if self.competition_name:
             lines.append(f"Wettbewerb: {self.competition_name}")
-        if self.match_datetime:
-            lines.append(f"Datum/Uhrzeit: {self.match_datetime.strftime('%d.%m.%Y, %H:%M')} Uhr")
+        if self.local_match_datetime:
+            lines.append(f"Datum/Uhrzeit: {self.local_match_datetime.strftime('%d.%m.%Y, %H:%M')} Uhr")
         if self.post_type == "result":
             if self.team_maps_won is not None and self.opponent_maps_won is not None:
                 lines.append(f"Ergebnis: {self.result_word} ({self.team_maps_won}:{self.opponent_maps_won} Maps)")
