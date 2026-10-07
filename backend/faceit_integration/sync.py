@@ -84,6 +84,23 @@ def _extract_our_faction_key(match: dict, faceit_team_id: str) -> Optional[str]:
     return None
 
 
+# FACEIT fills an odd-sized group (e.g. after the phase-2 regrouping) with a
+# placeholder opponent named "bye" - that "fixture" is never played, so it
+# must never become a TeamFaceitMatch (it would show up as a real upcoming
+# match on the site, trigger an announcement draft and, once FACEIT marks it
+# finished, a bogus "Sieg" Discord post). Compared casefolded + stripped.
+PLACEHOLDER_OPPONENT_NAMES = frozenset({"bye"})
+
+
+def is_placeholder_opponent(opponent_name: Optional[str]) -> bool:
+    """True if `opponent_name` is a FACEIT placeholder (bye) instead of a
+    real team. Takes the plain name so it works for both a raw faction
+    payload (`faction["name"]`) and an already-stored
+    TeamFaceitMatch.opponent_name (see the purge_placeholder_matches
+    management command)."""
+    return (opponent_name or "").strip().casefold() in PLACEHOLDER_OPPONENT_NAMES
+
+
 def _extract_player_faction_key(match: dict, faceit_player_id: str) -> Optional[str]:
     """Find which of the match's two factions (faction1/faction2) a given
     player was on, by looking for their faceit_player_id in each faction's
@@ -448,7 +465,7 @@ def sync_league_matches(league: League, client: FaceitClient) -> dict:
         logger.warning("FACEIT-Match-Sync fehlgeschlagen für Liga '%s': %s", league.name, exc)
         return {"created": 0, "updated": 0, "error": str(exc)}
 
-    created = updated = 0
+    created = updated = skipped_placeholders = 0
     for match in all_matches:
         match_id = match.get("match_id")
         if not match_id:
@@ -463,6 +480,15 @@ def sync_league_matches(league: League, client: FaceitClient) -> dict:
 
             opponent_key = "faction2" if our_key == "faction1" else "faction1"
             opponent_data = (match.get("teams") or {}).get(opponent_key, {})
+
+            if is_placeholder_opponent(opponent_data.get("name")):
+                skipped_placeholders += 1
+                logger.warning(
+                    "Liga '%s': Match %s (%s) übersprungen - Gegner '%s' ist ein Platzhalter (Freilos), kein echtes Team.",
+                    league.name, match_id, entry.team.name, opponent_data.get("name"),
+                )
+                break
+
             results = match.get("results") or {}
             score = results.get("score") or {}
             winner = results.get("winner")
@@ -508,21 +534,23 @@ def sync_league_matches(league: League, client: FaceitClient) -> dict:
                 generate_social_post_draft_for_series([match_obj], "result")
             break  # found the entry this match belongs to, no need to check the rest
 
-    return {"created": created, "updated": updated}
+    return {"created": created, "updated": updated, "skipped_placeholders": skipped_placeholders}
 
 
 def sync_all_team_matches(client: FaceitClient) -> dict:
     leagues = League.objects.exclude(faceit_organizer_id__isnull=True).exclude(faceit_organizer_id="")
-    created_total = updated_total = failed = 0
+    created_total = updated_total = skipped_total = failed = 0
     for league in leagues:
         result = sync_league_matches(league, client)
         created_total += result.get("created", 0)
         updated_total += result.get("updated", 0)
+        skipped_total += result.get("skipped_placeholders", 0)
         if result.get("error"):
             failed += 1
     return {
         "matches_created": created_total,
         "matches_updated": updated_total,
+        "matches_skipped_placeholder": skipped_total,
         "league_entries_failed": failed,
     }
 
