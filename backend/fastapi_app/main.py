@@ -11,6 +11,7 @@ import logging
 
 import jwt
 from PIL import Image
+from punishers_ger.image_safety import open_untrusted_image
 from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -116,7 +117,7 @@ IMAGE_SAVE_FORMAT_BY_EXTENSION = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG"
 
 def _validate_and_resize_image(data: bytes, extension: str) -> bytes:
     try:
-        with Image.open(io.BytesIO(data)) as probe:
+        with open_untrusted_image(io.BytesIO(data)) as probe:
             probe.verify()
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Datei ist kein gültiges Bild.") from exc
@@ -124,7 +125,7 @@ def _validate_and_resize_image(data: bytes, extension: str) -> bytes:
     if extension == ".gif":
         return data
 
-    with Image.open(io.BytesIO(data)) as img:
+    with open_untrusted_image(io.BytesIO(data)) as img:
         if img.width <= MAX_IMAGE_DIMENSION_PX and img.height <= MAX_IMAGE_DIMENSION_PX:
             return data
         img.thumbnail((MAX_IMAGE_DIMENSION_PX, MAX_IMAGE_DIMENSION_PX), Image.LANCZOS)

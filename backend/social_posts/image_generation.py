@@ -16,6 +16,8 @@ import requests
 from django.core.files.base import ContentFile
 from PIL import Image, ImageDraw, ImageFont
 
+from punishers_ger.image_safety import open_untrusted_image
+
 from .text_generation import MatchContext
 
 logger = logging.getLogger(__name__)
@@ -284,7 +286,7 @@ def _load_team_logo(path: Optional[str], diameter: int, ring_color: tuple[int, i
         if not candidate:
             continue
         try:
-            with Image.open(candidate) as source:
+            with open_untrusted_image(candidate) as source:
                 return _circular_logo(source, diameter, ring_color)
         except (OSError, ValueError):
             continue
@@ -301,7 +303,7 @@ def _load_opponent_logo(url: Optional[str], diameter: int, ring_color: tuple[int
     try:
         response = requests.get(url, timeout=5)
         response.raise_for_status()
-        with Image.open(io.BytesIO(response.content)) as source:
+        with open_untrusted_image(io.BytesIO(response.content)) as source:
             return _circular_logo(source, diameter, ring_color)
     except Exception:
         logger.warning("Gegner-Logo konnte nicht geladen werden: %s", url, exc_info=True)

@@ -23,7 +23,9 @@ import re
 from typing import Optional, TypedDict
 
 import pytesseract
-from PIL import Image, UnidentifiedImageError
+from PIL import UnidentifiedImageError
+
+from punishers_ger.image_safety import open_untrusted_image
 
 # Matches numbers like "45.3K", "1,2M", "12,345", "12.345", "1234", "892" -
 # the separator immediately before a K/M suffix is always a decimal point
@@ -85,7 +87,7 @@ def _has_keyword(context: str, keywords: tuple[str, ...]) -> bool:
 
 def extract_follower_candidates(image_bytes: bytes) -> OcrResult:
     try:
-        image = Image.open(io.BytesIO(image_bytes))
+        image = open_untrusted_image(io.BytesIO(image_bytes))
         text = pytesseract.image_to_string(image)
     except pytesseract.TesseractNotFoundError as exc:
         raise OcrError(
