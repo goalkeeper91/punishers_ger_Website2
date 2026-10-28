@@ -17,6 +17,7 @@ import {
 } from "~/lib/publicContent";
 import { fetchHeroVideoUrl } from "~/lib/siteSettings";
 import { imageFallback } from "~/lib/sampleAssets";
+import TeamLogo from "~/components/TeamLogo";
 import { buildMeta } from "~/lib/seo";
 
 export const meta: MetaFunction = () =>
@@ -94,11 +95,7 @@ export default function Home() {
                 {teaserTeams.map((team) => (
                   <div key={team.id} className="bg-gray-800 rounded-lg shadow-xl overflow-hidden transform hover:scale-105 transition-transform duration-300">
                     <div className="w-full h-48 bg-gray-900 flex items-center justify-center">
-                      <img
-                        src={team.image_url || imageFallback(`https://via.placeholder.com/600x400?text=${encodeURIComponent(team.name)}`)}
-                        alt={team.name}
-                        className="max-w-full max-h-full object-contain"
-                      />
+                      <TeamLogo name={team.name} game={team.game} imageUrl={team.image_url} />
                     </div>
                     <div className="p-6 text-left">
                       <h3 className="text-2xl font-bold text-white mb-1">{team.name}</h3>

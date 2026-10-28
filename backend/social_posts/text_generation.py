@@ -5,6 +5,7 @@ simple free text instead of a structured format the model would need to be
 trusted to format correctly (no parsing/splitting to get subtly wrong)."""
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -95,18 +96,21 @@ class MatchContext:
 
 PLATFORM_INSTRUCTIONS = {
     "facebook": (
-        "Schreibe einen Facebook-Post auf Deutsch für einen Esport-Verein (Punishers Germany). "
-        "Etwas ausführlicher und informativer als für andere Plattformen erlaubt, aber trotzdem knackig "
-        "(max. ca. 500 Zeichen). Maximal 1-2 passende Emojis. Kein Hashtag-Spam (max. 2-3 am Ende)."
+        "Schreibe einen Facebook-Post auf Deutsch aus Sicht des Esport-Teams Punishers Germany. "
+        "Persönlich und herzlich, wie jemand aus dem Team, der direkt mit seiner Community spricht - "
+        "kein nüchterner Vereinsbericht. Etwas ausführlicher als auf anderen Plattformen erlaubt, "
+        "aber trotzdem knackig (max. ca. 500 Zeichen). Maximal 1-2 passende Emojis. "
+        "Kein Hashtag-Spam (max. 2-3 am Ende)."
     ),
     "instagram": (
-        "Schreibe eine Instagram-Caption auf Deutsch für einen Esport-Verein (Punishers Germany). "
-        "Locker, community-nah, gerne mit 2-4 passenden Emojis. Max. ca. 300 Zeichen Fließtext, "
-        "danach 4-6 relevante Hashtags in einer neuen Zeile (z.B. #Esport #CS2 #PunishersGermany)."
+        "Schreibe eine Instagram-Caption auf Deutsch aus Sicht des Esport-Teams Punishers Germany. "
+        "Locker, nahbar und voller Teamgeist, gerne mit 2-4 passenden Emojis. Max. ca. 300 Zeichen "
+        "Fließtext, danach 4-6 relevante Hashtags in einer neuen Zeile "
+        "(z.B. #Esport #CS2 #PunishersGermany)."
     ),
     "x": (
-        "Schreibe einen Tweet auf Deutsch für einen Esport-Verein (Punishers Germany). "
-        "Sehr knapp und punchy, unbedingt unter 250 Zeichen inklusive Leerzeichen. "
+        "Schreibe einen Tweet auf Deutsch aus Sicht des Esport-Teams Punishers Germany. "
+        "Kurz, emotional und punchy, unbedingt unter 250 Zeichen inklusive Leerzeichen. "
         "Maximal 1 Emoji, maximal 2 Hashtags."
     ),
 }
@@ -142,28 +146,153 @@ def _fallback_hashtags(ctx: MatchContext, count: int) -> str:
     return " ".join(tags[:count])
 
 
+# What the post should make the reader FEEL, by occasion. Kept as a short,
+# occasion-specific hint (instead of one long tone section listing all four
+# cases) because a small local model follows a focused instruction far more
+# reliably than a long list it has to pick the relevant entry from.
+_TONE_BY_OCCASION = {
+    "announcement": "Baue Vorfreude auf: Die Community soll Lust bekommen, mitzufiebern und das Team anzufeuern.",
+    "Sieg": "Feiere gemeinsam mit der Community und bedanke dich bei allen, die mitgefiebert haben.",
+    "Niederlage": (
+        "Sei ehrlich und rede nichts schön, aber zeige Zusammenhalt: Wir stehen auch nach einem "
+        "schweren Match zusammen. Respektvoll gegenüber dem Gegner, keine Ausreden."
+    ),
+    "Unentschieden": "Ordne das Ergebnis souverän und positiv ein, ohne mehr hineinzudeuten als in den Fakten steht.",
+}
+
+# One hand-written example post per occasion and platform. A small model
+# imitates a concrete example far better than it follows an abstract "write
+# warm, personal, inclusive" instruction - and the examples are where the
+# actual voice (belonging, invitation, gratitude) is pinned down. They use a
+# made-up match on purpose; the prompt tells the model to take only the tone,
+# and _draft_problems rejects any draft that leaks the example's names
+# (_EXAMPLE_MARKERS) or numbers.
+_STYLE_EXAMPLES: dict[tuple[str, str], str] = {
+    ("announcement", "facebook"): (
+        "Matchday bei Punishers Germany! 🔥 Am 12.03. um 19:00 Uhr treten wir gegen Team Beispiel an - "
+        "und wir wollen euch dabei haben. Schaut vorbei, fiebert mit uns und feuert unser Team an. "
+        "Gemeinsam sind wir einfach stärker! 💪"
+    ),
+    ("announcement", "instagram"): (
+        "Matchday! 🔥 Am 12.03. um 19:00 Uhr geht es für unser Team gegen Team Beispiel los. "
+        "Seid dabei, fiebert mit und zeigt, dass ihr hinter uns steht - gemeinsam sind wir Punishers! 💙\n\n"
+        "#Esport #PunishersGermany"
+    ),
+    ("announcement", "x"): (
+        "Matchday! 🔥 Am 12.03. um 19:00 Uhr treten wir gegen Team Beispiel an. "
+        "Fiebert mit und feuert uns an - gemeinsam sind wir Punishers! #PunishersGermany"
+    ),
+    ("Sieg", "facebook"): (
+        "Was für ein Match! 🏆 Unser Team hat Team Beispiel mit 2:0 Maps geschlagen. Dieser Sieg gehört "
+        "euch allen, die mit uns mitgefiebert haben - danke, dass ihr hinter uns steht! "
+        "Das feiern wir jetzt gemeinsam."
+    ),
+    ("Sieg", "instagram"): (
+        "Sieg! 🏆🔥 Unser Team hat Team Beispiel mit 2:0 Maps bezwungen. Danke an jeden, der mitgefiebert "
+        "hat - ihr seid der Grund, warum wir alles geben! 💙\n\n#Esport #PunishersGermany"
+    ),
+    ("Sieg", "x"): (
+        "Sieg! 🏆 2:0 Maps gegen Team Beispiel - danke an alle, die mitgefiebert haben. "
+        "Das feiern wir gemeinsam! #PunishersGermany"
+    ),
+    ("Niederlage", "facebook"): (
+        "Leider nicht unser Match: Unser Team musste sich Team Beispiel mit 0:2 Maps geschlagen geben. "
+        "Das tut weh, aber wir sind ein Team - und ihr steht auch in solchen Momenten hinter uns. "
+        "Danke dafür! Wir lernen daraus und greifen an. 💪"
+    ),
+    ("Niederlage", "instagram"): (
+        "Das hat leider nicht gereicht: 0:2 Maps gegen Team Beispiel. Das tut weh - aber wir bleiben "
+        "zusammen und greifen an. Danke, dass ihr auch jetzt hinter uns steht! 💙\n\n#Esport #PunishersGermany"
+    ),
+    ("Niederlage", "x"): (
+        "0:2 Maps gegen Team Beispiel - das war leider nichts. Wir stehen zusammen und greifen an. "
+        "Danke an alle, die hinter uns stehen! #PunishersGermany"
+    ),
+    ("Unentschieden", "facebook"): (
+        "Unentschieden! ⚔️ Unser Team und Team Beispiel trennen sich 1:1 Maps. Danke an alle, die "
+        "mitgefiebert haben - ihr seid das Herz von Punishers Germany! 💙"
+    ),
+    ("Unentschieden", "instagram"): (
+        "1:1 Maps - Unentschieden gegen Team Beispiel! ⚔️ Danke an alle, die mitgefiebert haben, "
+        "ihr seid das Herz von Punishers Germany. 💙\n\n#Esport #PunishersGermany"
+    ),
+    ("Unentschieden", "x"): (
+        "Unentschieden: 1:1 Maps gegen Team Beispiel. ⚔️ Danke fürs Mitfiebern, "
+        "ihr seid das Herz von Punishers Germany! #PunishersGermany"
+    ),
+}
+
+# Names that only exist in _STYLE_EXAMPLES - if one shows up in a draft the
+# model copied the example instead of writing about the real match.
+_EXAMPLE_MARKERS = ("Team Beispiel",)
+
+
+def _occasion(ctx: MatchContext) -> str:
+    return "announcement" if ctx.post_type == "announcement" else (ctx.result_word or "")
+
+
+def _tone_hint(ctx: MatchContext) -> str:
+    return _TONE_BY_OCCASION.get(_occasion(ctx), "")
+
+
+def _style_example_block(platform: str, ctx: MatchContext) -> str:
+    example = _STYLE_EXAMPLES.get((_occasion(ctx), platform))
+    if not example:
+        return ""
+    return (
+        "Stilvorbild (ein ANDERES Match - übernimm daraus keine Namen, Zahlen oder ganzen Sätze, "
+        "nur den Ton und die Wärme):\n"
+        f"{example}\n\n"
+    )
+
+
+# Hard length budget per platform, repeated at the very END of the prompt:
+# a small model weighs the last instruction most, and the warmer tone
+# instructions above otherwise make it ramble (a first draft of this prompt
+# produced a 1200-character Facebook post against a 500-character target).
+_LENGTH_RULE = {
+    "facebook": "Länge: höchstens 4 Sätze und 500 Zeichen. Kürzer ist besser.",
+    "instagram": "Länge: höchstens 3 kurze Sätze und 300 Zeichen (ohne Hashtags). Kürzer ist besser.",
+    "x": "Länge: höchstens 2 kurze Sätze und 240 Zeichen inklusive Hashtags. Kürzer ist besser.",
+}
+
+
 def _build_prompt(platform: str, ctx: MatchContext) -> str:
     intent = (
-        "Kündige das folgende bevorstehende Match an, baue Vorfreude/Hype auf."
+        "Kündige das folgende bevorstehende Match an."
         if ctx.post_type == "announcement"
         else "Berichte über das folgende, bereits gespielte Match und sein Ergebnis."
     )
+    tone_hint = _tone_hint(ctx)
+    tone_line = f"- {tone_hint}\n" if tone_hint else ""
     return (
         f"{PLATFORM_INSTRUCTIONS[platform]}\n\n"
         f"{intent}\n\n"
         f"Fakten (dies ist ALLES was du weißt):\n{ctx.facts_block()}\n\n"
+        "Stimmung und Haltung (sehr wichtig):\n"
+        "- Wer den Post liest, soll sich als Teil von Punishers Germany fühlen oder dazugehören "
+        "wollen: Wir-Gefühl und Teamgeist. Sprich von 'unserem Team', 'unserer Community', 'bei uns'.\n"
+        "- Lade die Leser herzlich ein mitzufiebern, anzufeuern oder mitzufeiern.\n"
+        "- Warm und persönlich wie unter Freunden, keine Pressemitteilungs-Sprache "
+        "(kein 'wir freuen uns, bekannt zu geben').\n"
+        f"{tone_line}\n"
+        f"{_style_example_block(platform, ctx)}"
         "Wichtige Regeln:\n"
-        "- Nutze NUR die obigen Fakten. Erfinde keine zusätzlichen Details - keine Turniertitel, "
-        "Serien-/Siegesstrecken, Historie, Rivalitäten, Zahlen oder Szenen (z.B. 'wir sind gerade auf "
-        "dem Weg dorthin'), die dort nicht explizit stehen. Wenn du unsicher bist, ob etwas stimmt, "
-        "lass es weg statt es zu erwähnen.\n"
+        "- Nutze NUR die obigen Fakten. Gefühle und Haltung sind erlaubt, erfundene Fakten nicht: "
+        "Beschreibe NICHT den Spielverlauf, die Stimmung in der Halle oder einzelne Szenen, und "
+        "erfinde keine Turniertitel, Serien, Saisonstarts, Historie, Rivalitäten oder Zahlen. "
+        "Verwende keine Wörter wie 'wieder', 'erneut', 'endlich', 'weiterhin', 'heute' oder 'gestern' - "
+        "sie behaupten etwas, das nicht in den Fakten steht. Wenn du unsicher bist, lass es weg.\n"
+        "- Behaupte NICHTS über offene Plätze, Tryouts, Aufnahme oder Rekrutierung.\n"
         "- Schreibe in natürlichem, grammatikalisch korrektem Deutsch - keine wörtlich aus dem "
         "Englischen übersetzt klingenden Redewendungen.\n"
         "- Adressiere die Leser AUSSCHLIESSLICH mit 'ihr'/'euch' (Plural, du sprichst eine ganze "
         "Community an, keine einzelne Person) - NIEMALS 'du'/'dich' (Singular) und NIEMALS die "
-        "Höflichkeitsform 'Sie'/'Ihnen'. Genau eine Anredeform im ganzen Post, kein Wechsel.\n"
+        "Höflichkeitsform 'Sie'/'Ihnen'. Genau eine Anredeform im ganzen Post, kein Wechsel. "
+        "Beginne den Post nicht mit 'ihr'.\n"
         "- Sprich als das Team ('wir'), niemals als Einzelperson ('ich').\n"
         "- Gib NUR den reinen Text zurück, OHNE ihn in Anführungszeichen einzupacken.\n\n"
+        f"{_LENGTH_RULE[platform]}\n"
         "Gib NUR den fertigen Post-Text zurück, ohne Anführungszeichen, ohne Erklärung, ohne Vorspann."
     )
 
@@ -194,6 +323,97 @@ def _strip_wrapping_quotes(text: str) -> str:
     return f"{inner} {trailing}".strip() if trailing else inner
 
 
+# --- Output guard ----------------------------------------------------------
+# The warm, personal tone this module asks for also makes a small local model
+# more prone to embellishing (observed with the first draft of the prompt:
+# invented "Saisonstart", "Atmosphäre war elektrisch", 1200-character
+# Facebook posts, "endlich wieder" for a team with no stated history). The
+# prompt alone can't prevent that reliably, so each draft is checked for the
+# failure modes that matter and, if it trips any, rewritten ONCE with the
+# concrete problems named. Deliberately limited to mechanically checkable
+# things - it cannot catch a wrong claim like attributing a lost map as won.
+
+# Hard ceilings per platform (a little above the prompt's targets so a
+# slightly-too-long but otherwise fine draft isn't rewritten for nothing).
+_MAX_LENGTH = {"facebook": 650, "instagram": 450, "x": 270}
+
+_HISTORY_RE = re.compile(r"\b(wieder|erneut|endlich|weiterhin|heute|gestern)\b", re.IGNORECASE)
+# Singular "you" only - 'Sie'/'Ihr' are skipped on purpose: "sie" is also the
+# ordinary third person ("sie haben stark gespielt") and "Ihr" is the plural
+# "ihr" at a sentence start.
+_SINGULAR_YOU_RE = re.compile(r"\b(du|dich|dir|dein|deine|deinen|deinem|deiner)\b", re.IGNORECASE)
+_LEADING_IHR_RE = re.compile(r"^\W*(ihr|euch)\b", re.IGNORECASE)
+_HASHTAG_RE = re.compile(r"#\w+")
+
+
+def _draft_problems(text: str, platform: str, facts: str) -> list[str]:
+    problems: list[str] = []
+    if len(text) > _MAX_LENGTH[platform]:
+        problems.append(f"zu lang ({len(text)} Zeichen, erlaubt sind höchstens {_MAX_LENGTH[platform]})")
+    if _HISTORY_RE.search(text):
+        problems.append(
+            "enthält Wörter wie 'wieder', 'erneut', 'endlich', 'weiterhin', 'heute' oder 'gestern', "
+            "die etwas behaupten, das nicht in den Fakten steht"
+        )
+    if _SINGULAR_YOU_RE.search(text):
+        problems.append("spricht die Leser mit 'du'/'dich' an - erlaubt ist nur 'ihr'/'euch'")
+    if _LEADING_IHR_RE.match(text):
+        problems.append("beginnt mit 'ihr' - fange mit einem ganz normalen Satz an")
+    if any(marker in text for marker in _EXAMPLE_MARKERS):
+        problems.append("übernimmt Namen aus dem Stilvorbild - schreibe über das echte Match aus den Fakten")
+    # Every number in the post must come from the facts (scores, dates...) -
+    # hashtags are excluded since e.g. "#R6" legitimately carries a digit.
+    allowed_numbers = set(re.findall(r"\d+", facts))
+    invented = sorted(set(re.findall(r"\d+", _HASHTAG_RE.sub("", text))) - allowed_numbers)
+    if invented:
+        problems.append(f"nennt Zahlen, die nicht in den Fakten stehen: {', '.join(invented)}")
+    return problems
+
+
+def _trim_to_limit(text: str, limit: int) -> str:
+    """Last-resort length cap for a draft that is still too long after its
+    rewrite: keeps a trailing hashtag line intact, then cuts the body at the
+    last full sentence that fits (or, failing that, at a word boundary)."""
+    if len(text) <= limit:
+        return text
+    body, _, tail = text.rpartition("\n")
+    if body and tail.strip() and all(token.startswith("#") for token in tail.split()):
+        hashtags = tail.strip()
+    else:
+        body, hashtags = text, ""
+    room = limit - (len(hashtags) + 2 if hashtags else 0)
+    if len(body) > room:
+        cut = body[:room]
+        sentence_end = max(cut.rfind("."), cut.rfind("!"), cut.rfind("?"))
+        if sentence_end >= room // 2:
+            body = cut[: sentence_end + 1]
+        else:
+            body = cut.rsplit(" ", 1)[0].rstrip(" ,;:-") + "…"
+    return f"{body}\n\n{hashtags}" if hashtags else body
+
+
+def _generate_checked(client: OllamaClient, platform: str, ctx: MatchContext) -> str:
+    prompt = _build_prompt(platform, ctx)
+    facts = ctx.facts_block()
+    text = _strip_wrapping_quotes(client.generate(prompt))
+    problems = _draft_problems(text, platform, facts)
+    if problems:
+        logger.info("Entwurf für '%s' beanstandet (%s) - schreibe einmal neu", platform, "; ".join(problems))
+        retry_prompt = (
+            f"{prompt}\n\n"
+            f"Dein letzter Entwurf war leider nicht brauchbar:\n{text}\n\n"
+            f"Probleme: {'; '.join(problems)}.\n"
+            "Schreibe den Post komplett neu und vermeide genau diese Probleme."
+        )
+        retry = _strip_wrapping_quotes(client.generate(retry_prompt))
+        retry_problems = _draft_problems(retry, platform, facts)
+        if len(retry_problems) <= len(problems):
+            text, problems = retry, retry_problems
+        if problems:
+            logger.warning("Entwurf für '%s' hat nach dem Neuschreiben weiterhin Probleme: %s", platform, "; ".join(problems))
+    return _trim_to_limit(text, _MAX_LENGTH[platform])
+
+
 def generate_post_texts(ctx: MatchContext) -> tuple[dict[str, str], dict[str, str]]:
     """Returns (texts, errors) - texts has {"facebook": ..., "instagram":
     ..., "x": ...} for whichever platforms succeeded; errors has the actual
@@ -212,7 +432,7 @@ def generate_post_texts(ctx: MatchContext) -> tuple[dict[str, str], dict[str, st
     errors: dict[str, str] = {}
     for platform in ("facebook", "instagram", "x"):
         try:
-            text = _strip_wrapping_quotes(client.generate(_build_prompt(platform, ctx)))
+            text = _generate_checked(client, platform, ctx)
             if platform in fallback_counts and "#" not in text:
                 text = f"{text}\n\n{_fallback_hashtags(ctx, fallback_counts[platform])}"
             texts[platform] = text

@@ -34,7 +34,7 @@ import {
   LANGUAGE_COOKIE_NAME,
   type SupportedLanguage,
 } from "~/i18n/config";
-import { SITE_URL, SITE_NAME, DEFAULT_IMAGE } from "~/lib/seo";
+import { SITE_URL, SITE_NAME, LOGO_IMAGE } from "~/lib/seo";
 import { imageFallback } from "~/lib/sampleAssets";
 import MatchLivePopup from "~/components/MatchLivePopup";
 
@@ -80,7 +80,7 @@ function organizationJsonLd(socialLinks: SocialLink[]) {
     "@type": "SportsOrganization",
     name: SITE_NAME,
     url: SITE_URL,
-    logo: DEFAULT_IMAGE,
+    logo: LOGO_IMAGE,
     sameAs: socialLinks.map((link) => link.url),
   });
   // socialLinks.url is admin-entered data, not hardcoded - JSON.stringify
@@ -291,13 +291,14 @@ function SiteChrome({
       <header className="bg-gray-900 shadow-lg sticky top-0 z-50 relative">
         <nav className="container mx-auto px-4 h-[72px] flex justify-between items-center">
           <a href="/" className="flex items-center space-x-2 min-w-0">
-            <img src="/PUNISHERS_LOGO.png" alt="Punishers Germany Logo" className="h-10 flex-shrink-0" />
-            <span className="text-xl md:text-2xl font-bold text-white truncate hidden sm:inline">Punishers Germany</span>
+            <img src="/PUNISHERS_LOGO.png" alt="Punishers Germany Logo" width={48} height={48} className="h-12 w-12 flex-shrink-0" />
+            {/* Brand text hidden between lg and xl: the desktop nav (8 links + language + login) needs that width, the name would otherwise be squeezed to "Punish..." */}
+            <span className="text-xl md:text-2xl font-bold text-white truncate hidden sm:inline lg:hidden xl:inline">Punishers Germany</span>
           </a>
-          <ul className="hidden lg:flex space-x-6 items-center">
+          <ul className="hidden lg:flex space-x-4 xl:space-x-6 items-center">
             {navLinks.map((link) => (
               <li key={link.href}>
-                <a href={link.href} className="text-gray-300 hover:text-red-600 transition-colors duration-300">
+                <a href={link.href} className="text-gray-300 hover:text-red-600 transition-colors duration-300 whitespace-nowrap">
                   {link.label}
                 </a>
               </li>
@@ -492,7 +493,7 @@ function SiteChrome({
         <div className="container mx-auto px-4 text-center md:text-left">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="flex flex-col items-center md:items-start">
-              <img src="/PUNISHERS_LOGO.png" alt="Punishers Germany Logo" className="h-12 mb-4" />
+              <img src="/PUNISHERS_LOGO.png" alt="Punishers Germany Logo" width={64} height={64} className="h-16 w-16 mb-4" />
               <p className="text-gray-400">{t("footer.tagline")}</p>
             </div>
             <div>

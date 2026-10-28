@@ -2,7 +2,8 @@ import type { LoaderFunction, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { useTranslation } from "react-i18next";
 import { API_BASE_URL } from "~/lib/config";
-import { imageFallback, bannerFallback } from "~/lib/sampleAssets";
+import { bannerFallback } from "~/lib/sampleAssets";
+import TeamLogo from "~/components/TeamLogo";
 import { fetchPageBackground } from "~/lib/siteSettings";
 import { buildMeta } from "~/lib/seo";
 
@@ -110,7 +111,7 @@ export default function TeamsPage() {
               {mainTeams.map((team) => (
                 <div key={team.id} className="bg-gray-800 rounded-lg shadow-xl overflow-hidden transform hover:scale-105 transition-transform duration-300">
                   <div className="w-full h-56 bg-gray-900 flex items-center justify-center">
-                    <img src={team.image_url || imageFallback("https://via.placeholder.com/400x250?text=No+Image")} alt={team.name} className="max-w-full max-h-full object-contain" />
+                    <TeamLogo name={team.name} game={team.game} imageUrl={team.image_url} placeholderClassName="h-40 w-40" />
                   </div>
                   <div className="p-6">
                     <h3 className="text-2xl font-bold text-white mb-2">{team.name}</h3>
@@ -136,7 +137,7 @@ export default function TeamsPage() {
               {otherTeams.map((team) => (
                 <div key={team.id} className="bg-gray-800 rounded-lg shadow-xl overflow-hidden transform hover:scale-105 transition-transform duration-300">
                   <div className="w-full h-40 bg-gray-900 flex items-center justify-center">
-                    <img src={team.image_url || imageFallback("https://via.placeholder.com/300x200?text=No+Image")} alt={team.name} className="max-w-full max-h-full object-contain" />
+                    <TeamLogo name={team.name} game={team.game} imageUrl={team.image_url} />
                   </div>
                   <div className="p-4">
                     <h3 className="text-xl font-bold text-white mb-1">{team.name}</h3>

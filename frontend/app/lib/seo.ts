@@ -6,7 +6,10 @@
 
 export const SITE_URL = "https://punishersgermany.de";
 export const SITE_NAME = "Punishers Germany";
-export const DEFAULT_IMAGE = `${SITE_URL}/PUNISHERS_LOGO.png`;
+// Default share image (Open Graph / Twitter): the 1200x630 social preview.
+export const DEFAULT_IMAGE = `${SITE_URL}/social-preview-1200x630.jpg`;
+// The square logo itself - for schema.org "logo", which must be the logo, not a banner.
+export const LOGO_IMAGE = `${SITE_URL}/PUNISHERS_LOGO.png`;
 
 interface BuildMetaOptions {
   title: string;

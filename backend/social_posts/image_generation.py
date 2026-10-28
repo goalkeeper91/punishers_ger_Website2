@@ -41,7 +41,7 @@ WHITE = (255, 255, 255)
 GRAY = (156, 163, 175)
 
 # Per-game identity: a short badge abbreviation + an accent color used
-# throughout the template (diagonal lines, kicker banner, score, badge)
+# throughout the template (kicker banner, score, badge)
 # instead of always the same red - gives each post some visual identity/
 # variety by game at a glance, without needing any external logo assets
 # (matched by substring against Team.game, which is free text - e.g.
@@ -188,14 +188,6 @@ def _radial_vignette(center_color: tuple[int, int, int], edge_color: tuple[int, 
     return grad.resize((SIZE, SIZE), Image.BICUBIC)
 
 
-def _add_diagonal_accents(img: Image.Image, color: tuple[int, int, int]) -> Image.Image:
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    for offset in range(-SIZE, SIZE * 2, 260):
-        draw.line([(offset, SIZE), (offset + SIZE, 0)], fill=(*color, 45), width=3)
-    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-
-
 def _add_logo_watermark(img: Image.Image) -> Image.Image:
     """A very faint copy of the org's own logo, filling almost the entire
     canvas as background texture - reused instead of drawing anything
@@ -335,7 +327,7 @@ def _draw_maps_row(img: Image.Image, y: int, maps: list[dict]) -> tuple[Image.Im
     with its own accent color (see MAP_COLORS), the map name, and that
     map's score/result. Returns (new image, y position right after the
     row) - like every other semi-transparent decoration in this module
-    (_add_diagonal_accents, _draw_angular_banner, _draw_game_badge), this
+    (_draw_angular_banner, _draw_game_badge), this
     draws on its own RGBA overlay and alpha-composites it onto img, since a
     plain ImageDraw on the base RGB image can't blend a translucent fill
     color at all. Caller (generate_match_image) only calls this when
@@ -415,7 +407,6 @@ def generate_match_image(ctx: MatchContext) -> ContentFile:
 
     img = _radial_vignette(BG_CENTER, BG_EDGE)
     img = _add_logo_watermark(img)
-    img = _add_diagonal_accents(img, accent)
     img = _draw_angular_banner(img, 195, 62, accent)
     img = _draw_game_badge(img, game_abbr, accent)
     draw = ImageDraw.Draw(img)
@@ -464,7 +455,7 @@ def generate_match_image(ctx: MatchContext) -> ContentFile:
         # Win/loss color is a fixed, universal green/red - not the per-game
         # accent, which for some games (LoL gold, R6 amber) wouldn't read
         # as "bad" for a loss at all. The accent stays reserved for neutral
-        # decoration (score number, banner, diagonal lines).
+        # decoration (score number, banner).
         badge_color = (239, 68, 68) if ctx.result_word == "Niederlage" else (22, 163, 74) if ctx.result_word == "Sieg" else GRAY
         y = _draw_centered_text(draw, y, ctx.result_word.upper(), 36, True, badge_color) + 40
 

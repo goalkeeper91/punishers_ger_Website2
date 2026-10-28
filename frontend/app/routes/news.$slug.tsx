@@ -6,7 +6,7 @@ import { API_BASE_URL } from "~/lib/config";
 import { bannerFallback } from "~/lib/sampleAssets";
 import { getLanguageFromCookieHeader } from "~/i18n/config";
 import { stripMarkdown } from "~/lib/markdown";
-import { buildMeta, SITE_URL, SITE_NAME, DEFAULT_IMAGE } from "~/lib/seo";
+import { buildMeta, SITE_URL, SITE_NAME, DEFAULT_IMAGE, LOGO_IMAGE } from "~/lib/seo";
 
 interface NewsArticle {
   id: number;
@@ -68,7 +68,7 @@ function newsArticleJsonLd(article: NewsArticle): string {
     datePublished: article.published_date,
     dateModified: article.updated_date,
     author: article.author_name ? { "@type": "Person", name: article.author_name } : { "@type": "Organization", name: SITE_NAME },
-    publisher: { "@type": "Organization", name: SITE_NAME, logo: { "@type": "ImageObject", url: DEFAULT_IMAGE } },
+    publisher: { "@type": "Organization", name: SITE_NAME, logo: { "@type": "ImageObject", url: LOGO_IMAGE } },
     mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE_URL}/news/${article.slug}` },
   });
   return json.replace(/</g, "\\u003c");
