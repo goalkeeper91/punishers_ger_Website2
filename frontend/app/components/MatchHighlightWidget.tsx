@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { MatchHighlight } from "~/lib/publicContent";
+import { FloatingPortal, RestorePill } from "~/components/FloatingDock";
 
 // "Score bug" style widget: a compact floating card (not a full homepage
 // section) so it stays eye-catching without eating up layout real estate.
@@ -87,32 +88,51 @@ export default function MatchHighlightWidget({ highlights }: { highlights: Match
     return () => clearInterval(id);
   }, [highlights.length]);
 
-  if (highlights.length === 0 || dismissed) return null;
+  if (highlights.length === 0) return null;
 
   const handleDismiss = () => {
     setDismissed(true);
     sessionStorage.setItem(SESSION_DISMISS_KEY, "1");
   };
 
+  // Closing with the X used to remove the widget for the rest of the session
+  // with no way back - leave a small labelled button behind instead.
+  const handleRestore = () => {
+    setDismissed(false);
+    setCollapsed(false);
+    sessionStorage.removeItem(SESSION_DISMISS_KEY);
+  };
+
+  if (dismissed) {
+    return (
+      <FloatingPortal className="order-1">
+        <RestorePill label="Match-Info" ariaLabel="Match-Info wieder einblenden" variant="match" onClick={handleRestore} />
+      </FloatingPortal>
+    );
+  }
+
   const current = highlights[index % highlights.length];
 
   if (collapsed) {
     return (
-      <button
-        onClick={() => setCollapsed(false)}
-        className="fixed bottom-6 right-6 z-40 bg-red-600 hover:bg-red-700 text-white rounded-full h-14 w-14 shadow-xl flex items-center justify-center motion-safe:animate-slide-in-up"
-        aria-label="Match-Info anzeigen"
-      >
-        <span className="relative flex h-3 w-3">
-          <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-          <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
-        </span>
-      </button>
+      <FloatingPortal className="order-1">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="bg-red-600 hover:bg-red-700 text-white rounded-full h-14 w-14 shadow-xl flex items-center justify-center motion-safe:animate-slide-in-up"
+          aria-label="Match-Info anzeigen"
+        >
+          <span className="relative flex h-3 w-3">
+            <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
+          </span>
+        </button>
+      </FloatingPortal>
     );
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 w-72 max-w-[85vw] bg-gray-900 border border-red-600/40 rounded-xl shadow-2xl p-4 motion-safe:animate-slide-in-up">
+    <FloatingPortal className="order-1">
+    <div className="w-72 max-w-[85vw] bg-gray-900 border border-red-600/40 rounded-xl shadow-2xl p-4 motion-safe:animate-slide-in-up">
       <div className="flex items-center justify-between mb-2">
         <div className="flex flex-wrap gap-1.5 max-w-[70%]">
           {highlights.length > 1 &&
@@ -136,5 +156,6 @@ export default function MatchHighlightWidget({ highlights }: { highlights: Match
         <MatchContent match={current} />
       </a>
     </div>
+    </FloatingPortal>
   );
 }

@@ -37,6 +37,7 @@ import {
 import { SITE_URL, SITE_NAME, LOGO_IMAGE } from "~/lib/seo";
 import { imageFallback } from "~/lib/sampleAssets";
 import MatchLivePopup from "~/components/MatchLivePopup";
+import { FloatingDock } from "~/components/FloatingDock";
 
 type UserProfile = AuthUser;
 
@@ -486,6 +487,7 @@ function SiteChrome({
 
       {/* Site-wide "a match is live" popup - renders nothing until its own
           client-side poll finds a live, cast match. */}
+      <FloatingDock />
       <MatchLivePopup />
 
       {/* Global Footer */}

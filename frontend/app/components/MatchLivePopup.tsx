@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchLiveBroadcast, type LiveBroadcast } from "~/lib/publicContent";
+import { FloatingPortal, RestorePill } from "~/components/FloatingDock";
 
 // Site-wide "a match is live" popup. Mounted once in root.tsx so it can
 // appear on every page (unlike MatchHighlightWidget, which is homepage-only).
@@ -43,7 +44,7 @@ export default function MatchLivePopup() {
     };
   }, []);
 
-  if (dismissed || !live) return null;
+  if (!live) return null;
 
   const handleDismiss = () => {
     setDismissed(true);
@@ -53,6 +54,26 @@ export default function MatchLivePopup() {
       /* ignore */
     }
   };
+
+  // Closing with the X used to remove the popup for the rest of the session
+  // with no way back - leave a small labelled button behind instead.
+  const handleRestore = () => {
+    setDismissed(false);
+    setCollapsed(false);
+    try {
+      sessionStorage.removeItem(SESSION_DISMISS_KEY);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  if (dismissed) {
+    return (
+      <FloatingPortal className="order-2">
+        <RestorePill label="Live" ariaLabel="Live-Match wieder einblenden" variant="live" onClick={handleRestore} />
+      </FloatingPortal>
+    );
+  }
 
   // Twitch's embedded player requires a `parent` matching the embedding
   // page's hostname - derived client-side so it always matches whatever
@@ -65,21 +86,24 @@ export default function MatchLivePopup() {
 
   if (collapsed) {
     return (
-      <button
-        onClick={() => setCollapsed(false)}
-        className="fixed bottom-6 right-6 z-40 bg-red-600 hover:bg-red-700 text-white rounded-full h-14 w-14 shadow-xl flex items-center justify-center motion-safe:animate-slide-in-up"
-        aria-label="Live-Match anzeigen"
-      >
-        <span className="relative flex h-3 w-3">
-          <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-          <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
-        </span>
-      </button>
+      <FloatingPortal className="order-2">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="bg-red-600 hover:bg-red-700 text-white rounded-full h-14 w-14 shadow-xl flex items-center justify-center motion-safe:animate-slide-in-up"
+          aria-label="Live-Match anzeigen"
+        >
+          <span className="relative flex h-3 w-3">
+            <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
+          </span>
+        </button>
+      </FloatingPortal>
     );
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 w-72 max-w-[85vw] bg-gray-900 border border-red-600/40 rounded-xl shadow-2xl p-4 motion-safe:animate-slide-in-up">
+    <FloatingPortal className="order-2">
+    <div className="w-72 max-w-[85vw] bg-gray-900 border border-red-600/40 rounded-xl shadow-2xl p-4 motion-safe:animate-slide-in-up">
       <div className="flex items-center justify-between mb-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-red-500">
           <span className="relative flex h-2 w-2">
@@ -139,5 +163,6 @@ export default function MatchLivePopup() {
         )}
       </div>
     </div>
+    </FloatingPortal>
   );
 }
